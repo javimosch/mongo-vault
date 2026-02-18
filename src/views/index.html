@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MongoVault</title>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <style>
+    [v-cloak] { display: none; }
+    .tab-active { border-bottom: 2px solid currentColor; }
+  </style>
+</head>
+<body class="bg-base-200 min-h-screen" data-theme="night">
+<div id="app" v-cloak>
+  <div class="navbar bg-base-100 shadow-md px-4">
+    <div class="flex-1">
+      <span class="text-xl font-bold text-primary">🗄 MongoVault</span>
+    </div>
+    <div class="flex-none">
+      <div class="tabs tabs-boxed bg-base-200">
+        <a class="tab" :class="{ 'tab-active': tab === 'dashboard' }" @click="tab='dashboard'">Dashboard</a>
+        <a class="tab" :class="{ 'tab-active': tab === 'targets' }" @click="tab='targets'">Targets</a>
+        <a class="tab" :class="{ 'tab-active': tab === 'settings' }" @click="tab='settings'">Settings</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="container mx-auto p-4 max-w-6xl">
+
+    <!-- DASHBOARD TAB -->
+    <div v-if="tab === 'dashboard'">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-2xl font-bold">Backup Dashboard</h2>
+        <button class="btn btn-sm btn-ghost" @click="loadDashboard">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          Refresh
+        </button>
+      </div>
+
+      <div v-if="dashLoading" class="flex justify-center py-12">
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+      </div>
+
+      <div v-else-if="dashData.length === 0" class="alert alert-info">
+        <span>No backup targets configured. Go to the <strong>Targets</strong> tab to add one.</span>
+      </div>
+
+      <div v-else class="space-y-6">
+        <div v-for="item in dashData" :key="item.target.id" class="card bg-base-100 shadow">
+          <div class="card-body">
+            <div class="flex flex-wrap justify-between items-start gap-2">
+              <div>
+                <h3 class="card-title text-lg">{{ item.target.label || item.target.id }}</h3>
+                <p class="text-sm text-base-content/60">{{ item.target.sshUser }}@{{ item.target.sshHost }} · {{ item.target.containerId }}</p>
+                <p class="text-xs text-base-content/50 mt-1">Cron: <code>{{ item.target.cron || '0 2 * * *' }}</code> · Retention: {{ item.target.retentionCount || 7 }} backups</p>
+              </div>
+              <div class="flex flex-col items-end gap-1">
+                <div class="flex gap-2 items-center">
+                  <span class="badge" :class="statusBadgeClass(item.status.status)">{{ item.status.status || 'idle' }}</span>
+                  <button class="btn btn-sm btn-primary" :disabled="item.status.status === 'running'" @click="triggerBackup(item.target.id)">
+                    <span v-if="item.status.status === 'running'" class="loading loading-spinner loading-xs"></span>
+                    <span v-else>▶ Run Now</span>
+                  </button>
+                </div>
+                <p v-if="item.nextRun" class="text-xs text-base-content/50">Next: {{ formatDate(item.nextRun) }}</p>
+                <p v-if="item.status.finishedAt" class="text-xs text-base-content/50">Last: {{ formatDate(item.status.finishedAt) }}</p>
+                <p v-if="item.status.error" class="text-xs text-error max-w-xs truncate" :title="item.status.error">⚠ {{ item.status.error }}</p>
+              </div>
+            </div>
+
+            <div class="divider my-2"></div>
+
+            <div v-if="item.backups.length === 0" class="text-sm text-base-content/50">No backups yet.</div>
+            <div v-else class="overflow-x-auto">
+              <table class="table table-sm">
+                <thead>
+                  <tr><th>Filename</th><th>Size</th><th>Created</th><th></th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="b in item.backups" :key="b.filename">
+                    <td class="font-mono text-xs">{{ b.filename }}</td>
+                    <td class="text-xs">{{ formatSize(b.size) }}</td>
+                    <td class="text-xs">{{ formatDate(b.createdAt) }}</td>
+                    <td>
+                      <button class="btn btn-xs btn-error btn-outline" @click="deleteBackup(item.target.id, b.filename)">Delete</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TARGETS TAB -->
+    <div v-if="tab === 'targets'">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-2xl font-bold">Backup Targets</h2>
+        <button class="btn btn-primary btn-sm" @click="openTargetModal(null)">+ Add Target</button>
+      </div>
+
+      <div v-if="targetsLoading" class="flex justify-center py-12">
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+      </div>
+
+      <div v-else-if="targets.length === 0" class="alert alert-info">
+        <span>No targets yet. Click <strong>+ Add Target</strong> to create one.</span>
+      </div>
+
+      <div v-else class="grid gap-4 md:grid-cols-2">
+        <div v-for="t in targets" :key="t.id" class="card bg-base-100 shadow">
+          <div class="card-body">
+            <h3 class="card-title">{{ t.label || t.id }}</h3>
+            <p class="text-sm text-base-content/60">{{ t.sshUser }}@{{ t.sshHost }}</p>
+            <p class="text-xs text-base-content/50">Container: {{ t.containerId }}</p>
+            <p class="text-xs text-base-content/50">Cron: <code>{{ t.cron || '0 2 * * *' }}</code></p>
+            <div class="flex gap-2 items-center mt-1">
+              <span class="badge" :class="t.enabled ? 'badge-success' : 'badge-ghost'">{{ t.enabled ? 'Enabled' : 'Disabled' }}</span>
+            </div>
+            <div class="card-actions justify-end mt-2">
+              <button class="btn btn-sm btn-outline" @click="openTargetModal(t)">Edit</button>
+              <button class="btn btn-sm btn-error btn-outline" @click="deleteTarget(t.id)">Delete</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SETTINGS TAB -->
+    <div v-if="tab === 'settings'">
+      <h2 class="text-2xl font-bold mb-4">Settings</h2>
+      <div class="card bg-base-100 shadow max-w-2xl">
+        <div class="card-body">
+          <h3 class="card-title">SSH Private Key</h3>
+          <p class="text-sm text-base-content/60 mb-2">
+            Paste the content of your SSH private key (e.g. <code>~/.ssh/id_rsa</code>). It will be stored encrypted in the database.
+          </p>
+          <div v-if="sshKeyStatus !== null" class="mb-2">
+            <span class="badge" :class="sshKeyStatus ? 'badge-success' : 'badge-warning'">
+              {{ sshKeyStatus ? '✓ SSH key is configured' : '⚠ No SSH key configured' }}
+            </span>
+          </div>
+          <textarea
+            v-model="sshKeyInput"
+            class="textarea textarea-bordered font-mono text-xs h-48 w-full"
+            placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"
+          ></textarea>
+          <div class="card-actions justify-end mt-2">
+            <button class="btn btn-primary" :disabled="!sshKeyInput.trim() || sshKeySaving" @click="saveSshKey">
+              <span v-if="sshKeySaving" class="loading loading-spinner loading-xs"></span>
+              Save Key
+            </button>
+          </div>
+          <div v-if="sshKeyMsg" class="alert mt-2" :class="sshKeyMsg.ok ? 'alert-success' : 'alert-error'">
+            <span>{{ sshKeyMsg.text }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- TARGET MODAL -->
+  <dialog id="target-modal" class="modal">
+    <div class="modal-box w-11/12 max-w-2xl">
+      <h3 class="font-bold text-lg mb-4">{{ editTarget.id ? 'Edit Target' : 'New Backup Target' }}</h3>
+      <form @submit.prevent="saveTarget">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div class="form-control">
+            <label class="label"><span class="label-text">Label</span></label>
+            <input v-model="editTarget.label" type="text" class="input input-bordered" placeholder="VPS2 MongoDB" />
+          </div>
+          <div class="form-control">
+            <label class="label"><span class="label-text">SSH Host *</span></label>
+            <input v-model="editTarget.sshHost" type="text" class="input input-bordered" placeholder="188.245.71.48" required />
+          </div>
+          <div class="form-control">
+            <label class="label"><span class="label-text">SSH User *</span></label>
+            <input v-model="editTarget.sshUser" type="text" class="input input-bordered" placeholder="root" required />
+          </div>
+          <div class="form-control md:col-span-2">
+            <label class="label"><span class="label-text">Container ID *</span></label>
+            <input v-model="editTarget.containerId" type="text" class="input input-bordered font-mono text-sm" placeholder="dkg4w404ooc0w0gs48sss0k4-214821316514" required />
+          </div>
+          <div class="form-control">
+            <label class="label"><span class="label-text">Mongo User</span></label>
+            <input v-model="editTarget.mongoUser" type="text" class="input input-bordered" placeholder="admin" />
+          </div>
+          <div class="form-control">
+            <label class="label"><span class="label-text">Mongo Password</span></label>
+            <input v-model="editTarget.mongoPassword" type="password" class="input input-bordered" placeholder="••••••••" />
+          </div>
+          <div class="form-control">
+            <label class="label"><span class="label-text">Auth DB</span></label>
+            <input v-model="editTarget.mongoAuthDb" type="text" class="input input-bordered" placeholder="admin" />
+          </div>
+          <div class="form-control">
+            <label class="label"><span class="label-text">Cron Expression</span></label>
+            <input v-model="editTarget.cron" type="text" class="input input-bordered font-mono" placeholder="0 2 * * *" />
+          </div>
+          <div class="form-control">
+            <label class="label"><span class="label-text">Retention (# backups)</span></label>
+            <input v-model.number="editTarget.retentionCount" type="number" min="1" max="100" class="input input-bordered" placeholder="7" />
+          </div>
+          <div class="form-control flex-row items-center gap-3 pt-6">
+            <input v-model="editTarget.enabled" type="checkbox" class="toggle toggle-success" />
+            <span class="label-text">Enabled</span>
+          </div>
+        </div>
+        <div class="modal-action mt-4">
+          <button type="button" class="btn btn-ghost" @click="closeTargetModal">Cancel</button>
+          <button type="submit" class="btn btn-primary" :disabled="targetSaving">
+            <span v-if="targetSaving" class="loading loading-spinner loading-xs"></span>
+            Save Target
+          </button>
+        </div>
+        <div v-if="targetError" class="alert alert-error mt-2"><span>{{ targetError }}</span></div>
+      </form>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
+  <!-- TOAST -->
+  <div class="toast toast-end z-50" v-if="toast">
+    <div class="alert" :class="toast.ok ? 'alert-success' : 'alert-error'">
+      <span>{{ toast.text }}</span>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const { createApp, ref, onMounted, watch } = Vue;
+
+createApp({
+  setup() {
+    const tab = ref('dashboard');
+    const toast = ref(null);
+
+    // Dashboard
+    const dashData = ref([]);
+    const dashLoading = ref(false);
+
+    // Targets
+    const targets = ref([]);
+    const targetsLoading = ref(false);
+    const editTarget = ref({});
+    const targetSaving = ref(false);
+    const targetError = ref('');
+
+    // Settings
+    const sshKeyInput = ref('');
+    const sshKeyStatus = ref(null);
+    const sshKeySaving = ref(false);
+    const sshKeyMsg = ref(null);
+
+    function showToast(text, ok = true) {
+      toast.value = { text, ok };
+      setTimeout(() => { toast.value = null; }, 3000);
+    }
+
+    function formatDate(d) {
+      if (!d) return '-';
+      return new Date(d).toLocaleString();
+    }
+
+    function formatSize(bytes) {
+      if (!bytes) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    function statusBadgeClass(status) {
+      if (status === 'success') return 'badge-success';
+      if (status === 'error') return 'badge-error';
+      if (status === 'running') return 'badge-warning';
+      return 'badge-ghost';
+    }
+
+    async function loadDashboard() {
+      dashLoading.value = true;
+      try {
+        const r = await fetch('/api/backups');
+        const json = await r.json();
+        dashData.value = json.data || [];
+      } catch (e) {
+        showToast('Failed to load dashboard', false);
+      } finally {
+        dashLoading.value = false;
+      }
+    }
+
+    async function triggerBackup(targetId) {
+      try {
+        const r = await fetch(`/api/backups/trigger/${targetId}`, { method: 'POST' });
+        const json = await r.json();
+        if (!r.ok) throw new Error(json.error);
+        showToast('Backup started');
+        setTimeout(loadDashboard, 1500);
+      } catch (e) {
+        showToast(e.message, false);
+      }
+    }
+
+    async function deleteBackup(targetId, filename) {
+      if (!confirm(`Delete backup ${filename}?`)) return;
+      try {
+        const r = await fetch(`/api/backups/${targetId}/${filename}`, { method: 'DELETE' });
+        const json = await r.json();
+        if (!r.ok) throw new Error(json.error);
+        showToast('Backup deleted');
+        loadDashboard();
+      } catch (e) {
+        showToast(e.message, false);
+      }
+    }
+
+    async function loadTargets() {
+      targetsLoading.value = true;
+      try {
+        const r = await fetch('/api/targets');
+        const json = await r.json();
+        targets.value = json.targets || [];
+      } catch (e) {
+        showToast('Failed to load targets', false);
+      } finally {
+        targetsLoading.value = false;
+      }
+    }
+
+    function openTargetModal(t) {
+      targetError.value = '';
+      editTarget.value = t ? { ...t } : {
+        label: '', sshHost: '', sshUser: 'root', containerId: '',
+        mongoUser: '', mongoPassword: '', mongoAuthDb: 'admin',
+        cron: '0 2 * * *', retentionCount: 7, enabled: true
+      };
+      document.getElementById('target-modal').showModal();
+    }
+
+    function closeTargetModal() {
+      document.getElementById('target-modal').close();
+    }
+
+    async function saveTarget() {
+      targetSaving.value = true;
+      targetError.value = '';
+      try {
+        const r = await fetch('/api/targets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(editTarget.value),
+        });
+        const json = await r.json();
+        if (!r.ok) throw new Error(json.error);
+        showToast('Target saved');
+        closeTargetModal();
+        loadTargets();
+      } catch (e) {
+        targetError.value = e.message;
+      } finally {
+        targetSaving.value = false;
+      }
+    }
+
+    async function deleteTarget(id) {
+      if (!confirm('Delete this target? Backup files will remain.')) return;
+      try {
+        const r = await fetch(`/api/targets/${id}`, { method: 'DELETE' });
+        const json = await r.json();
+        if (!r.ok) throw new Error(json.error);
+        showToast('Target deleted');
+        loadTargets();
+      } catch (e) {
+        showToast(e.message, false);
+      }
+    }
+
+    async function loadSshKeyStatus() {
+      try {
+        const r = await fetch('/api/settings/ssh-key');
+        const json = await r.json();
+        sshKeyStatus.value = json.hasKey;
+      } catch {}
+    }
+
+    async function saveSshKey() {
+      sshKeySaving.value = true;
+      sshKeyMsg.value = null;
+      try {
+        const r = await fetch('/api/settings/ssh-key', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ privateKey: sshKeyInput.value }),
+        });
+        const json = await r.json();
+        if (!r.ok) throw new Error(json.error);
+        sshKeyMsg.value = { ok: true, text: 'SSH key saved successfully.' };
+        sshKeyInput.value = '';
+        sshKeyStatus.value = true;
+      } catch (e) {
+        sshKeyMsg.value = { ok: false, text: e.message };
+      } finally {
+        sshKeySaving.value = false;
+      }
+    }
+
+    watch(tab, (t) => {
+      if (t === 'dashboard') loadDashboard();
+      if (t === 'targets') loadTargets();
+      if (t === 'settings') loadSshKeyStatus();
+    });
+
+    onMounted(() => {
+      loadDashboard();
+    });
+
+    return {
+      tab, toast, dashData, dashLoading,
+      targets, targetsLoading, editTarget, targetSaving, targetError,
+      sshKeyInput, sshKeyStatus, sshKeySaving, sshKeyMsg,
+      formatDate, formatSize, statusBadgeClass,
+      loadDashboard, triggerBackup, deleteBackup,
+      loadTargets, openTargetModal, closeTargetModal, saveTarget, deleteTarget,
+      loadSshKeyStatus, saveSshKey,
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
