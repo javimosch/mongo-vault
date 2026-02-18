@@ -19,10 +19,15 @@ createApp({
     const targetError = ref('');
 
     // Restore
-    const restoreCtx = ref({ sourceTargetId: '', filename: '', mode: 'existing', existingTargetId: '', custom: { sshHost: '127.0.0.1', sshUser: '', containerId: 'mongo-restore-test', mongoUser: 'root', mongoPassword: '', mongoAuthDb: 'admin' }, isReconnect: false, reconnectTarget: null, log: [], running: false, done: false, error: null });
+    const restoreCtx = ref({ sourceTargetId: '', filename: '', mode: 'existing', existingTargetId: '', custom: { sshHost: '127.0.0.1', sshUser: '', containerId: 'mongo-restore-test', mongoUser: 'root', mongoPassword: '', mongoAuthDb: 'admin' }, protectAdminDb: true, isReconnect: false, reconnectTarget: null, log: [], running: false, done: false, error: null });
+
+    // Audit
+    const auditEvents = ref([]);
+    const auditLoading = ref(false);
+    const auditFilters = ref({ action: '', outcome: '', dateRange: '' });
 
     function openRestoreModal(targetId, filename) {
-      restoreCtx.value = { sourceTargetId: targetId, filename, mode: 'existing', existingTargetId: targets.value[0]?.id || '', custom: { sshHost: '127.0.0.1', sshUser: '', containerId: 'mongo-restore-test', mongoUser: 'root', mongoPassword: '', mongoAuthDb: 'admin' }, isReconnect: false, reconnectTarget: null, log: [], running: false, done: false, error: null };
+      restoreCtx.value = { sourceTargetId: targetId, filename, mode: 'existing', existingTargetId: targets.value[0]?.id || '', custom: { sshHost: '127.0.0.1', sshUser: '', containerId: 'mongo-restore-test', mongoUser: 'root', mongoPassword: '', mongoAuthDb: 'admin' }, protectAdminDb: true, isReconnect: false, reconnectTarget: null, log: [], running: false, done: false, error: null };
       if (!targets.value.length) loadTargets();
       document.getElementById('restore-modal').showModal();
     }
@@ -58,6 +63,8 @@ createApp({
 
     function closeRestoreModal() {
       document.getElementById('restore-modal').close();
+      // Refresh jobs list in case status wasn't updated via SSE
+      loadRestoreJobs();
     }
 
     async function runRestore() {
@@ -66,9 +73,9 @@ createApp({
       if (ctx.mode === 'existing') {
         const t = targets.value.find(x => x.id === ctx.existingTargetId);
         if (!t) return showToast('Select a target', false);
-        restoreTarget = { sshHost: t.sshHost, sshUser: t.sshUser, containerId: t.containerId, mongoUser: t.mongoUser, mongoPassword: t.mongoPassword, mongoAuthDb: t.mongoAuthDb };
+        restoreTarget = { sshHost: t.sshHost, sshUser: t.sshUser, containerId: t.containerId, mongoUser: t.mongoUser, mongoPassword: t.mongoPassword, mongoAuthDb: t.mongoAuthDb, protectAdminDb: ctx.protectAdminDb };
       } else {
-        restoreTarget = { ...ctx.custom };
+        restoreTarget = { ...ctx.custom, protectAdminDb: ctx.protectAdminDb };
       }
       ctx.running = true;
       ctx.log = [];
@@ -98,7 +105,71 @@ createApp({
         const r = await fetch('/api/restores/status');
         const json = await r.json();
         restoreJobs.value = (json.jobs || []).slice().reverse();
-      } catch {}
+        console.log(`[app] Loaded ${restoreJobs.value.length} restore jobs`);
+      } catch (e) {
+        console.error('[app] Failed to load restore jobs:', e);
+      }
+    }
+
+    async function loadAuditEvents() {
+      auditLoading.value = true;
+      try {
+        // Wait for saasbackend connection if needed
+        if (globalThis.saasbackend.connectionPromise) {
+          await globalThis.saasbackend.connectionPromise;
+        }
+        
+        // Use saasbackend audit service directly instead of HTTP API
+        const { AuditEvent } = globalThis.saasbackend.models;
+        const mongoose = globalThis.saasbackend.mongoose;
+        
+        const filter = {};
+        
+        if (auditFilters.value.action) {
+          filter.action = { $regex: auditFilters.value.action, $options: 'i' };
+        }
+        
+        if (auditFilters.value.outcome) {
+          filter.outcome = auditFilters.value.outcome;
+        }
+        
+        if (auditFilters.value.dateRange) {
+          const now = new Date();
+          const fromDate = auditFilters.value.dateRange === '24h' 
+            ? new Date(now.getTime() - 24 * 60 * 60 * 1000)
+            : new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          filter.createdAt = { $gte: fromDate };
+        }
+        
+        // Filter for restore-related actions if no specific action is set
+        if (!auditFilters.value.action) {
+          filter.action = { $regex: '^restore\\.', $options: 'i' };
+        }
+        
+        const events = await AuditEvent.find(filter)
+          .populate('actorUserId', 'email')
+          .sort({ createdAt: -1 })
+          .limit(50)
+          .lean();
+        
+        // Normalize events to match expected format
+        auditEvents.value = events.map(evt => ({
+          ...evt,
+          id: evt._id,
+          at: evt.createdAt,
+          details: evt.details || evt.meta
+        }));
+        
+      } catch (e) {
+        console.error('[app] Failed to load audit events:', e);
+        showToast('Failed to load audit events', false);
+      } finally {
+        auditLoading.value = false;
+      }
+    }
+
+    function applyAuditFilters() {
+      loadAuditEvents();
     }
 
     async function clearRestoreJob(jobId) {
@@ -289,6 +360,7 @@ createApp({
     watch(tab, (t) => {
       if (t === 'dashboard') { loadDashboard(); loadRestoreJobs(); startRestorePoller(); }
       if (t === 'targets') { loadTargets(); stopRestorePoller(); }
+      if (t === 'audit') { loadAuditEvents(); stopRestorePoller(); }
       if (t === 'settings') { loadSshKeyStatus(); stopRestorePoller(); }
     });
 
@@ -322,6 +394,7 @@ createApp({
       targets, targetsLoading, editTarget, targetSaving, targetError,
       sshKeyInput, sshKeyStatus, sshKeySaving, sshKeyMsg,
       restoreCtx, openRestoreModal, closeRestoreModal, runRestore, reconnectJob, clearRestoreJob,
+      auditEvents, auditLoading, auditFilters, loadAuditEvents, applyAuditFilters,
       formatDate, formatSize, statusBadgeClass, relativeTime,
       loadDashboard, triggerBackup, deleteBackup,
       loadTargets, openTargetModal, closeTargetModal, saveTarget, deleteTarget,

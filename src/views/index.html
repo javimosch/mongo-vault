@@ -22,6 +22,7 @@
       <div class="tabs tabs-boxed bg-base-200">
         <a class="tab" :class="{ 'tab-active': tab === 'dashboard' }" @click="tab='dashboard'">Dashboard</a>
         <a class="tab" :class="{ 'tab-active': tab === 'targets' }" @click="tab='targets'">Targets</a>
+        <a class="tab" :class="{ 'tab-active': tab === 'audit' }" @click="tab='audit'">Audit</a>
         <a class="tab" :class="{ 'tab-active': tab === 'settings' }" @click="tab='settings'">Settings</a>
       </div>
     </div>
@@ -200,6 +201,102 @@
       </div>
     </div>
 
+    <!-- AUDIT TAB -->
+    <div v-if="tab === 'audit'">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-2xl font-bold">Audit Log</h2>
+        <button class="btn btn-primary btn-sm" @click="loadAuditEvents">
+          <span v-if="auditLoading" class="loading loading-spinner loading-xs"></span>
+          Refresh
+        </button>
+      </div>
+
+      <!-- Filters -->
+      <div class="card bg-base-100 shadow mb-4">
+        <div class="card-body p-4">
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
+            <div class="form-control">
+              <label class="label"><span class="label-text">Action</span></label>
+              <select v-model="auditFilters.action" class="select select-bordered select-sm">
+                <option value="">All Actions</option>
+                <option value="restore.trigger">Restore Trigger</option>
+                <option value="restore.complete">Restore Complete</option>
+                <option value="restore.error">Restore Error</option>
+              </select>
+            </div>
+            <div class="form-control">
+              <label class="label"><span class="label-text">Outcome</span></label>
+              <select v-model="auditFilters.outcome" class="select select-bordered select-sm">
+                <option value="">All</option>
+                <option value="success">Success</option>
+                <option value="failure">Failure</option>
+              </select>
+            </div>
+            <div class="form-control">
+              <label class="label"><span class="label-text">Date Range</span></label>
+              <select v-model="auditFilters.dateRange" class="select select-bordered select-sm">
+                <option value="">All Time</option>
+                <option value="24h">Last 24 Hours</option>
+                <option value="7d">Last 7 Days</option>
+              </select>
+            </div>
+            <div class="form-control">
+              <label class="label">&nbsp;</label>
+              <button class="btn btn-outline btn-sm" @click="applyAuditFilters">Apply Filters</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Audit Events Table -->
+      <div class="card bg-base-100 shadow">
+        <div class="card-body p-0">
+          <div class="overflow-x-auto">
+            <table class="table table-sm">
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Actor</th>
+                  <th>Action</th>
+                  <th>Entity</th>
+                  <th>Outcome</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="event in auditEvents" :key="event.id">
+                  <td class="text-xs">{{ formatDate(event.at) }}</td>
+                  <td class="text-xs">
+                    <span class="badge badge-outline">{{ event.actorType }}</span>
+                    <span v-if="event.actorUserId" class="text-xs ml-1">{{ event.actorUserId?.email || event.actorId }}</span>
+                  </td>
+                  <td class="text-xs font-mono">{{ event.action }}</td>
+                  <td class="text-xs">{{ event.entityType || '-' }}</td>
+                  <td>
+                    <span class="badge badge-sm" :class="event.outcome === 'success' ? 'badge-success' : 'badge-error'">
+                      {{ event.outcome }}
+                    </span>
+                  </td>
+                  <td class="text-xs">
+                    <div v-if="event.meta?.jobId" class="font-mono">Job: {{ event.meta.jobId }}</div>
+                    <div v-if="event.meta?.filename">File: {{ event.meta.filename }}</div>
+                    <div v-if="event.meta?.sourceTargetId">Target: {{ event.meta.sourceTargetId }}</div>
+                    <div v-if="event.error" class="text-error">{{ event.error }}</div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div v-if="auditLoading" class="p-4 text-center">
+              <span class="loading loading-spinner"></span>
+            </div>
+            <div v-if="!auditLoading && auditEvents.length === 0" class="p-4 text-center text-base-content/60">
+              No audit events found
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <!-- RESTORE MODAL -->
@@ -229,6 +326,16 @@
         <div class="form-control"><label class="label"><span class="label-text">Mongo User</span></label><input v-model="restoreCtx.custom.mongoUser" class="input input-bordered input-sm" placeholder="root" /></div>
         <div class="form-control"><label class="label"><span class="label-text">Mongo Password</span></label><input v-model="restoreCtx.custom.mongoPassword" class="input input-bordered input-sm" placeholder="testpass" /></div>
         <div class="form-control"><label class="label"><span class="label-text">Auth DB</span></label><input v-model="restoreCtx.custom.mongoAuthDb" class="input input-bordered input-sm" placeholder="admin" /></div>
+      </div>
+      
+      <div v-if="!restoreCtx.isReconnect" class="form-control mb-2">
+        <label class="label cursor-pointer">
+          <span class="label-text">Protect admin database (exclude from restore)</span>
+          <input type="checkbox" v-model="restoreCtx.protectAdminDb" class="checkbox checkbox-sm ml-2" />
+        </label>
+        <label class="label">
+          <span class="label-text-alt">When checked, prevents overwriting users and roles in the admin database</span>
+        </label>
       </div>
       
       <!-- Reconnect mode: Show readonly target details -->
