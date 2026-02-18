@@ -9,26 +9,33 @@ async function triggerRestore(req, res) {
     }
     const jobId = await restoreService.startRestore({ sourceTargetId, filename, restoreTarget });
     
-    // Audit log
-    const actor = getBasicAuthActor(req);
-    await createAuditEvent({
-      actorType: actor.actorType,
-      actorId: actor.actorId,
-      action: 'restore.trigger',
-      entityType: 'backup',
-      entityId: `${sourceTargetId}:${filename}`,
-      meta: {
-        jobId,
-        sourceTargetId,
-        filename,
-        restoreTarget: {
-          sshHost: restoreTarget.sshHost,
-          sshUser: restoreTarget.sshUser,
-          containerId: restoreTarget.containerId,
-          mongoUser: restoreTarget.mongoUser,
+    // Audit logging for restore trigger
+    console.log('[restore-controller] Creating audit event for restore trigger');
+    try {
+      const actor = getBasicAuthActor(req);
+      createAuditEvent({
+        actorType: actor.actorType,
+        actorUserId: actor.actorUserId,
+        actorId: actor.actorId,
+        action: 'restore.trigger',
+        entityType: 'backup',
+        entityId: `${sourceTargetId}:${filename}`,
+        meta: {
+          sourceTargetId,
+          filename,
+          restoreTarget: {
+            sshHost: restoreTarget.sshHost,
+            sshUser: restoreTarget.sshUser,
+            containerId: restoreTarget.containerId,
+            mongoUser: restoreTarget.mongoUser,
+          }
         }
-      }
-    });
+      }).then(() => {
+        console.log('[restore-controller] Audit event created successfully');
+      }).catch(err => console.error('[restore-controller] Failed to log audit event:', err));
+    } catch (err) {
+      console.error('[restore-controller] Audit service not available:', err);
+    }
     
     res.json({ ok: true, jobId });
   } catch (err) {
@@ -63,6 +70,7 @@ function streamProgress(req, res) {
   job.emitter.on('progress', send);
 
   const onDone = (data) => {
+    console.log(`[restore-controller] SSE done event for job:`, req.params.jobId, 'status:', data.status);
     res.write(`data: ${JSON.stringify({ done: true, status: data.status, error: data.error })}\n\n`);
     cleanup();
     res.end();

@@ -55,12 +55,12 @@ async function startRestore({ sourceTargetId, filename, restoreTarget }) {
     emitter,
   };
 
-  _runRestore({ jobId, filePath, privateKey, sshHost, sshUser, containerId, mongoUser, mongoPassword, mongoAuthDb, emitter });
+  _runRestore({ jobId, filePath, privateKey, sshHost, sshUser, containerId, mongoUser, mongoPassword, mongoAuthDb, restoreTarget, emitter });
 
   return jobId;
 }
 
-function _runRestore({ jobId, filePath, privateKey, sshHost, sshUser, containerId, mongoUser, mongoPassword, mongoAuthDb, emitter }) {
+function _runRestore({ jobId, filePath, privateKey, sshHost, sshUser, containerId, mongoUser, mongoPassword, mongoAuthDb, restoreTarget, emitter }) {
   const job = restoreJobs[jobId];
 
   const command = [
@@ -70,7 +70,7 @@ function _runRestore({ jobId, filePath, privateKey, sshHost, sshUser, containerI
     mongoUser ? `--username ${mongoUser}` : '',
     mongoPassword ? `--password ${mongoPassword}` : '',
     `--authenticationDatabase ${mongoAuthDb}`,
-    `--nsExclude "admin.*"`,
+    restoreTarget.protectAdminDb ? `--nsExclude "admin.*"` : '',
     `--archive --gzip --drop`,
   ].filter(Boolean).join(' ');
 
@@ -157,6 +157,7 @@ function _finishJob(jobId, errorMsg, emitter) {
     if (job.progress) job.progress.push(msg);
     emitter.emit('progress', msg);
   }
+  console.log(`[restore-service] Job ${jobId} status updated to: ${job.status}`);
   // Audit logging for completion
   try {
     const { createAuditEvent } = require('@intranefr/superbackend/src/services/audit.service');
