@@ -40,10 +40,12 @@ app.use(express.static(path.join(__dirname, 'views')));
 const targetRoutes = require('./routes/target.routes');
 const backupRoutes = require('./routes/backup.routes');
 const settingsRoutes = require('./routes/settings.routes');
+const restoreRoutes = require('./routes/restore.routes');
 
 app.use('/api/targets', targetRoutes);
 app.use('/api/backups', backupRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/restores', restoreRoutes);
 
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'views', 'index.html'));
