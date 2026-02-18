@@ -123,55 +123,46 @@ createApp({
     async function loadAuditEvents() {
       auditLoading.value = true;
       try {
-        // Wait for saasbackend connection if needed
-        if (globalThis.saasbackend.connectionPromise) {
-          await globalThis.saasbackend.connectionPromise;
-        }
-        
-        // Use saasbackend audit service directly instead of HTTP API
-        const { AuditEvent } = globalThis.saasbackend.models;
-        const mongoose = globalThis.saasbackend.mongoose;
-        
-        const filter = {};
-        
-        if (auditFilters.value.action) {
-          filter.action = { $regex: auditFilters.value.action, $options: 'i' };
-        }
-        
-        if (auditFilters.value.outcome) {
-          filter.outcome = auditFilters.value.outcome;
-        }
-        
+        const params = new URLSearchParams();
+        if (auditFilters.value.action) params.append('action', auditFilters.value.action);
+        if (auditFilters.value.outcome) params.append('outcome', auditFilters.value.outcome);
         if (auditFilters.value.dateRange) {
           const now = new Date();
-          const fromDate = auditFilters.value.dateRange === '24h' 
-            ? new Date(now.getTime() - 24 * 60 * 60 * 1000)
-            : new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-          filter.createdAt = { $gte: fromDate };
+          if (auditFilters.value.dateRange === '24h') {
+            params.append('from', new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString());
+          } else if (auditFilters.value.dateRange === '7d') {
+            params.append('from', new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString());
+          }
         }
+        params.append('pageSize', '50');
         
         // Filter for restore-related actions if no specific action is set
         if (!auditFilters.value.action) {
-          filter.action = { $regex: '^restore\\.', $options: 'i' };
+          params.append('action', 'restore.');
         }
         
-        const events = await AuditEvent.find(filter)
-          .populate('actorUserId', 'email')
-          .sort({ createdAt: -1 })
-          .limit(50)
-          .lean();
+        const r = await fetch(`/saas/api/admin/audit?${params}`, {
+          headers: {
+            'Authorization': 'Basic ' + btoa('admin:changeme')
+          }
+        });
         
-        // Normalize events to match expected format
-        auditEvents.value = events.map(evt => ({
+        if (!r.ok) {
+          throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+        }
+        
+        const json = await r.json();
+        auditEvents.value = (json.events || []).map(evt => ({
           ...evt,
-          id: evt._id,
-          at: evt.createdAt,
+          id: evt._id || evt.id,
+          at: evt.at || evt.createdAt,
           details: evt.details || evt.meta
         }));
         
       } catch (e) {
         console.error('[app] Failed to load audit events:', e);
-        showToast('Failed to load audit events', false);
+        showToast('Failed to load audit events: ' + e.message, false);
+        auditEvents.value = [];
       } finally {
         auditLoading.value = false;
       }
