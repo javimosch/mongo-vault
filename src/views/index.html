@@ -402,9 +402,73 @@
             <label class="label"><span class="label-text">Auth DB</span></label>
             <input v-model="editTarget.mongoAuthDb" type="text" class="input input-bordered" placeholder="admin" />
           </div>
-          <div class="form-control">
-            <label class="label"><span class="label-text">Cron Expression</span></label>
-            <input v-model="editTarget.cron" type="text" class="input input-bordered font-mono" placeholder="0 2 * * *" />
+          <div class="form-control md:col-span-2">
+            <label class="label"><span class="label-text">Backup Schedule</span></label>
+            
+            <!-- Schedule Type -->
+            <div class="mb-3">
+              <select v-model="cronHelper.type" @change="updateCronExpression" class="select select-bordered select-sm">
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="custom">Custom (Advanced)</option>
+              </select>
+            </div>
+
+            <!-- Daily Schedule -->
+            <div v-if="cronHelper.type === 'daily'" class="flex items-center gap-3 mb-3">
+              <span class="text-sm">at</span>
+              <select v-model="cronHelper.hour" @change="updateCronExpression" class="select select-bordered select-sm w-20">
+                <option v-for="h in 24" :value="h-1">{{ String(h-1).padStart(2, '0') }}:00</option>
+              </select>
+              <span class="text-sm text-base-content/60">(24h format)</span>
+            </div>
+
+            <!-- Weekly Schedule -->
+            <div v-if="cronHelper.type === 'weekly'" class="space-y-3 mb-3">
+              <div class="flex items-center gap-3">
+                <span class="text-sm">on</span>
+                <select v-model="cronHelper.day" @change="updateCronExpression" class="select select-bordered select-sm">
+                  <option value="0">Sunday</option>
+                  <option value="1">Monday</option>
+                  <option value="2">Tuesday</option>
+                  <option value="3">Wednesday</option>
+                  <option value="4">Thursday</option>
+                  <option value="5">Friday</option>
+                  <option value="6">Saturday</option>
+                </select>
+                <span class="text-sm">at</span>
+                <select v-model="cronHelper.hour" @change="updateCronExpression" class="select select-bordered select-sm w-20">
+                  <option v-for="h in 24" :value="h-1">{{ String(h-1).padStart(2, '0') }}:00</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Monthly Schedule -->
+            <div v-if="cronHelper.type === 'monthly'" class="flex items-center gap-3 mb-3">
+              <span class="text-sm">on day</span>
+              <select v-model="cronHelper.dayOfMonth" @change="updateCronExpression" class="select select-bordered select-sm w-20">
+                <option v-for="d in 31" :value="d">{{ d }}</option>
+              </select>
+              <span class="text-sm">at</span>
+              <select v-model="cronHelper.hour" @change="updateCronExpression" class="select select-bordered select-sm w-20">
+                <option v-for="h in 24" :value="h-1">{{ String(h-1).padStart(2, '0') }}:00</option>
+              </select>
+            </div>
+
+            <!-- Custom Cron Expression -->
+            <div v-if="cronHelper.type === 'custom'" class="mb-3">
+              <input v-model="editTarget.cron" type="text" class="input input-bordered font-mono text-sm" placeholder="0 2 * * *" />
+              <label class="label">
+                <span class="label-text-alt">Use standard cron format: minute hour day month weekday</span>
+              </label>
+            </div>
+
+            <!-- Cron Expression Preview -->
+            <div v-if="cronHelper.type !== 'custom'" class="bg-base-200 p-3 rounded-lg">
+              <div class="text-xs font-mono">{{ editTarget.cron }}</div>
+              <div class="text-xs text-base-content/60 mt-1">{{ cronHelper.description }}</div>
+            </div>
           </div>
           <div class="form-control">
             <label class="label"><span class="label-text">Retention (# backups)</span></label>

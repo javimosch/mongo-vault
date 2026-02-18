@@ -17,6 +17,15 @@ createApp({
     const editTarget = ref({});
     const targetSaving = ref(false);
     const targetError = ref('');
+    
+    // Cron Helper
+    const cronHelper = ref({
+      type: 'daily',
+      hour: 2,
+      day: 1, // Monday
+      dayOfMonth: 1,
+      description: ''
+    });
 
     // Restore
     const restoreCtx = ref({ sourceTargetId: '', filename: '', mode: 'existing', existingTargetId: '', custom: { sshHost: '127.0.0.1', sshUser: '', containerId: 'mongo-restore-test', mongoUser: 'root', mongoPassword: '', mongoAuthDb: 'admin' }, protectAdminDb: true, isReconnect: false, reconnectTarget: null, log: [], running: false, done: false, error: null });
@@ -297,7 +306,64 @@ createApp({
         mongoUser: '', mongoPassword: '', mongoAuthDb: 'admin',
         cron: '0 2 * * *', retentionCount: 7, enabled: true
       };
+      
+      // Initialize cron helper based on existing cron or defaults
+      initializeCronHelper(editTarget.value.cron);
+      
       document.getElementById('target-modal').showModal();
+    }
+
+    function initializeCronHelper(cronExpression) {
+      // Try to parse existing cron expression
+      const parts = cronExpression.split(' ');
+      if (parts.length === 5) {
+        const [minute, hour, day, month, weekday] = parts;
+        
+        // Check for common patterns
+        if (day === '*' && weekday === '*' && month === '*') {
+          // Daily schedule
+          cronHelper.value = { type: 'daily', hour: parseInt(hour), day: 1, dayOfMonth: 1, description: `Daily at ${String(hour).padStart(2, '0')}:00` };
+        } else if (day === '*' && month === '*' && weekday !== '*') {
+          // Weekly schedule
+          cronHelper.value = { type: 'weekly', hour: parseInt(hour), day: parseInt(weekday), dayOfMonth: 1, description: `Weekly on ${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][parseInt(weekday)]} at ${String(hour).padStart(2, '0')}:00` };
+        } else if (day !== '*' && weekday === '*' && month === '*') {
+          // Monthly schedule
+          cronHelper.value = { type: 'monthly', hour: parseInt(hour), day: 1, dayOfMonth: parseInt(day), description: `Monthly on day ${day} at ${String(hour).padStart(2, '0')}:00` };
+        } else {
+          // Custom/complex expression
+          cronHelper.value = { type: 'custom', hour: 2, day: 1, dayOfMonth: 1, description: '' };
+        }
+      } else {
+        // Default to daily
+        cronHelper.value = { type: 'daily', hour: 2, day: 1, dayOfMonth: 1, description: 'Daily at 02:00' };
+      }
+    }
+
+    function updateCronExpression() {
+      const { type, hour, day, dayOfMonth } = cronHelper.value;
+      let cron = '';
+      let description = '';
+      
+      switch (type) {
+        case 'daily':
+          cron = `0 ${hour} * * *`;
+          description = `Daily at ${String(hour).padStart(2, '0')}:00`;
+          break;
+        case 'weekly':
+          cron = `0 ${hour} * * ${day}`;
+          description = `Weekly on ${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][day]} at ${String(hour).padStart(2, '0')}:00`;
+          break;
+        case 'monthly':
+          cron = `0 ${hour} ${dayOfMonth} * *`;
+          description = `Monthly on day ${dayOfMonth} at ${String(hour).padStart(2, '0')}:00`;
+          break;
+        case 'custom':
+          // Don't modify custom cron expressions
+          return;
+      }
+      
+      editTarget.value.cron = cron;
+      cronHelper.value.description = description;
     }
 
     function closeTargetModal() {
@@ -401,7 +467,7 @@ createApp({
 
     return {
       tab, toast, dashData, dashLoading, restoreJobs,
-      targets, targetsLoading, editTarget, targetSaving, targetError,
+      targets, targetsLoading, editTarget, targetSaving, targetError, cronHelper, updateCronExpression,
       sshKeyInput, sshKeyStatus, sshKeySaving, sshKeyMsg,
       restoreCtx, openRestoreModal, closeRestoreModal, runRestore, reconnectJob, clearRestoreJob,
       auditEvents, auditLoading, auditFilters, loadAuditEvents, applyAuditFilters,
