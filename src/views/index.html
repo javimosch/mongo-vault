@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MongoVault</title>
+  <title>Coolify Mongo Backup</title>
   <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
@@ -16,7 +16,7 @@
 <div id="app" v-cloak>
   <div class="navbar bg-base-100 shadow-md px-4">
     <div class="flex-1">
-      <span class="text-xl font-bold text-primary">🗄 MongoVault</span>
+      <span class="text-xl font-bold text-primary">🗄 Coolify Mongo Backup</span>
     </div>
     <div class="flex-none">
       <div class="tabs tabs-boxed bg-base-200">
@@ -64,7 +64,10 @@
                     <span v-else>▶ Run Now</span>
                   </button>
                 </div>
-                <p v-if="item.nextRun" class="text-xs text-base-content/50">Next: {{ formatDate(item.nextRun) }}</p>
+                <p v-if="item.nextRun" class="text-xs text-base-content/50">
+                  Next: {{ formatDate(item.nextRun) }}
+                  <span v-if="relativeTime(item.nextRun)" class="text-xs text-primary/60 font-normal" :title="'Next run: ' + formatDate(item.nextRun)"> ({{ relativeTime(item.nextRun) }})</span>
+                </p>
                 <p v-if="item.status.finishedAt" class="text-xs text-base-content/50">Last: {{ formatDate(item.status.finishedAt) }}</p>
                 <p v-if="item.status.error" class="text-xs text-error max-w-xs truncate" :title="item.status.error">⚠ {{ item.status.error }}</p>
               </div>
@@ -83,13 +86,49 @@
                     <td class="font-mono text-xs">{{ b.filename }}</td>
                     <td class="text-xs">{{ formatSize(b.size) }}</td>
                     <td class="text-xs">{{ formatDate(b.createdAt) }}</td>
-                    <td>
+                    <td class="flex gap-1">
+                      <button class="btn btn-xs btn-info btn-outline" @click="openRestoreModal(item.target.id, b.filename)">Restore</button>
                       <button class="btn btn-xs btn-error btn-outline" @click="deleteBackup(item.target.id, b.filename)">Delete</button>
                     </td>
                   </tr>
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RESTORE JOBS PANEL -->
+      <div v-if="restoreJobs.length" class="mt-6">
+        <h3 class="text-lg font-bold mb-2">Restore Jobs</h3>
+        <div class="card bg-base-100 shadow">
+          <div class="card-body p-0">
+            <table class="table table-sm">
+              <thead>
+                <tr><th>File</th><th>Target</th><th>Started</th><th>Status</th><th></th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="job in restoreJobs" :key="job.jobId">
+                  <td class="font-mono text-xs">{{ job.filename }}</td>
+                  <td class="text-xs text-base-content/60">{{ job.sourceTargetId }}</td>
+                  <td class="text-xs">{{ formatDate(job.startedAt) }}</td>
+                  <td>
+                    <span class="badge badge-sm" :class="statusBadgeClass(job.status)">
+                      <span v-if="job.status === 'running'" class="loading loading-spinner loading-xs mr-1"></span>
+                      {{ job.status }}
+                    </span>
+                  </td>
+                  <td>
+                    <div class="flex gap-1">
+                      <button class="btn btn-xs btn-info btn-outline" @click="reconnectJob(job)">
+                        {{ job.status === 'running' ? 'Reconnect' : 'View' }}
+                      </button>
+                      <button class="btn btn-xs btn-error btn-outline" @click="clearRestoreJob(job.jobId)">Clear</button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -163,6 +202,64 @@
 
   </div>
 
+  <!-- RESTORE MODAL -->
+  <dialog id="restore-modal" class="modal">
+    <div class="modal-box w-11/12 max-w-2xl">
+      <h3 class="font-bold text-lg mb-1">
+        {{ restoreCtx.isReconnect ? 'Reconnect to Restore' : 'Restore Backup' }}
+      </h3>
+      <p class="text-sm text-base-content/60 mb-3">File: <code class="text-xs">{{ restoreCtx.filename }}</code></p>
+      <div v-if="!restoreCtx.isReconnect" class="form-control mb-2">
+        <label class="label"><span class="label-text font-semibold">Restore Target</span></label>
+        <select v-model="restoreCtx.mode" class="select select-bordered">
+          <option value="existing">Existing target</option>
+          <option value="custom">Custom (e.g. local test container)</option>
+        </select>
+      </div>
+      <div v-if="!restoreCtx.isReconnect && restoreCtx.mode === 'existing'" class="form-control mb-2">
+        <label class="label"><span class="label-text">Target</span></label>
+        <select v-model="restoreCtx.existingTargetId" class="select select-bordered">
+          <option v-for="t in targets" :key="t.id" :value="t.id">{{ t.label || t.id }} ({{ t.sshHost }})</option>
+        </select>
+      </div>
+      <div v-if="!restoreCtx.isReconnect && restoreCtx.mode === 'custom'" class="grid grid-cols-2 gap-2 mb-2">
+        <div class="form-control"><label class="label"><span class="label-text">SSH Host</span></label><input v-model="restoreCtx.custom.sshHost" class="input input-bordered input-sm" placeholder="127.0.0.1" /></div>
+        <div class="form-control"><label class="label"><span class="label-text">SSH User</span></label><input v-model="restoreCtx.custom.sshUser" class="input input-bordered input-sm" placeholder="jarancibia" /></div>
+        <div class="form-control col-span-2"><label class="label"><span class="label-text">Container ID / Name</span></label><input v-model="restoreCtx.custom.containerId" class="input input-bordered input-sm font-mono" placeholder="mongo-restore-test" /></div>
+        <div class="form-control"><label class="label"><span class="label-text">Mongo User</span></label><input v-model="restoreCtx.custom.mongoUser" class="input input-bordered input-sm" placeholder="root" /></div>
+        <div class="form-control"><label class="label"><span class="label-text">Mongo Password</span></label><input v-model="restoreCtx.custom.mongoPassword" class="input input-bordered input-sm" placeholder="testpass" /></div>
+        <div class="form-control"><label class="label"><span class="label-text">Auth DB</span></label><input v-model="restoreCtx.custom.mongoAuthDb" class="input input-bordered input-sm" placeholder="admin" /></div>
+      </div>
+      
+      <!-- Reconnect mode: Show readonly target details -->
+      <div v-if="restoreCtx.isReconnect && restoreCtx.reconnectTarget" class="bg-base-200 p-3 rounded-lg mb-2">
+        <label class="label"><span class="label-text font-semibold">Restore Target (Reconnect Mode)</span></label>
+        <div class="grid grid-cols-2 gap-2 text-sm">
+          <div><span class="font-semibold">SSH Host:</span> {{ restoreCtx.reconnectTarget.sshHost }}</div>
+          <div><span class="font-semibold">SSH User:</span> {{ restoreCtx.reconnectTarget.sshUser }}</div>
+          <div class="col-span-2"><span class="font-semibold">Container:</span> <code class="text-xs">{{ restoreCtx.reconnectTarget.containerId }}</code></div>
+          <div><span class="font-semibold">Mongo User:</span> {{ restoreCtx.reconnectTarget.mongoUser }}</div>
+          <div><span class="font-semibold">Auth DB:</span> {{ restoreCtx.reconnectTarget.mongoAuthDb }}</div>
+        </div>
+      </div>
+      <div v-if="restoreCtx.log.length" class="mt-3">
+        <p class="text-xs font-semibold mb-1">Progress</p>
+        <textarea ref="progressTextarea" readonly class="textarea textarea-bordered font-mono text-xs w-full h-36 bg-base-300" :value="restoreCtx.log.join('\n')"></textarea>
+      </div>
+      <div v-if="restoreCtx.done" class="alert mt-2" :class="restoreCtx.error ? 'alert-error' : 'alert-success'">
+        <span>{{ restoreCtx.error ? '✗ ' + restoreCtx.error : '✓ Restore completed successfully' }}</span>
+      </div>
+      <div class="modal-action mt-3">
+        <button class="btn btn-ghost btn-sm" @click="closeRestoreModal">Close</button>
+        <button v-if="!restoreCtx.isReconnect" class="btn btn-info btn-sm" :disabled="restoreCtx.running || restoreCtx.done" @click="runRestore">
+          <span v-if="restoreCtx.running" class="loading loading-spinner loading-xs"></span>
+          {{ restoreCtx.running ? 'Restoring…' : 'Start Restore' }}
+        </button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
   <!-- TARGET MODAL -->
   <dialog id="target-modal" class="modal">
     <div class="modal-box w-11/12 max-w-2xl">
@@ -232,205 +329,6 @@
 
 </div>
 
-<script>
-const { createApp, ref, onMounted, watch } = Vue;
-
-createApp({
-  setup() {
-    const tab = ref('dashboard');
-    const toast = ref(null);
-
-    // Dashboard
-    const dashData = ref([]);
-    const dashLoading = ref(false);
-
-    // Targets
-    const targets = ref([]);
-    const targetsLoading = ref(false);
-    const editTarget = ref({});
-    const targetSaving = ref(false);
-    const targetError = ref('');
-
-    // Settings
-    const sshKeyInput = ref('');
-    const sshKeyStatus = ref(null);
-    const sshKeySaving = ref(false);
-    const sshKeyMsg = ref(null);
-
-    function showToast(text, ok = true) {
-      toast.value = { text, ok };
-      setTimeout(() => { toast.value = null; }, 3000);
-    }
-
-    function formatDate(d) {
-      if (!d) return '-';
-      return new Date(d).toLocaleString();
-    }
-
-    function formatSize(bytes) {
-      if (!bytes) return '0 B';
-      const k = 1024;
-      const sizes = ['B', 'KB', 'MB', 'GB'];
-      const i = Math.floor(Math.log(bytes) / Math.log(k));
-      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-    }
-
-    function statusBadgeClass(status) {
-      if (status === 'success') return 'badge-success';
-      if (status === 'error') return 'badge-error';
-      if (status === 'running') return 'badge-warning';
-      return 'badge-ghost';
-    }
-
-    async function loadDashboard() {
-      dashLoading.value = true;
-      try {
-        const r = await fetch('/api/backups');
-        const json = await r.json();
-        dashData.value = json.data || [];
-      } catch (e) {
-        showToast('Failed to load dashboard', false);
-      } finally {
-        dashLoading.value = false;
-      }
-    }
-
-    async function triggerBackup(targetId) {
-      try {
-        const r = await fetch(`/api/backups/trigger/${targetId}`, { method: 'POST' });
-        const json = await r.json();
-        if (!r.ok) throw new Error(json.error);
-        showToast('Backup started');
-        setTimeout(loadDashboard, 1500);
-      } catch (e) {
-        showToast(e.message, false);
-      }
-    }
-
-    async function deleteBackup(targetId, filename) {
-      if (!confirm(`Delete backup ${filename}?`)) return;
-      try {
-        const r = await fetch(`/api/backups/${targetId}/${filename}`, { method: 'DELETE' });
-        const json = await r.json();
-        if (!r.ok) throw new Error(json.error);
-        showToast('Backup deleted');
-        loadDashboard();
-      } catch (e) {
-        showToast(e.message, false);
-      }
-    }
-
-    async function loadTargets() {
-      targetsLoading.value = true;
-      try {
-        const r = await fetch('/api/targets');
-        const json = await r.json();
-        targets.value = json.targets || [];
-      } catch (e) {
-        showToast('Failed to load targets', false);
-      } finally {
-        targetsLoading.value = false;
-      }
-    }
-
-    function openTargetModal(t) {
-      targetError.value = '';
-      editTarget.value = t ? { ...t } : {
-        label: '', sshHost: '', sshUser: 'root', containerId: '',
-        mongoUser: '', mongoPassword: '', mongoAuthDb: 'admin',
-        cron: '0 2 * * *', retentionCount: 7, enabled: true
-      };
-      document.getElementById('target-modal').showModal();
-    }
-
-    function closeTargetModal() {
-      document.getElementById('target-modal').close();
-    }
-
-    async function saveTarget() {
-      targetSaving.value = true;
-      targetError.value = '';
-      try {
-        const r = await fetch('/api/targets', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(editTarget.value),
-        });
-        const json = await r.json();
-        if (!r.ok) throw new Error(json.error);
-        showToast('Target saved');
-        closeTargetModal();
-        loadTargets();
-      } catch (e) {
-        targetError.value = e.message;
-      } finally {
-        targetSaving.value = false;
-      }
-    }
-
-    async function deleteTarget(id) {
-      if (!confirm('Delete this target? Backup files will remain.')) return;
-      try {
-        const r = await fetch(`/api/targets/${id}`, { method: 'DELETE' });
-        const json = await r.json();
-        if (!r.ok) throw new Error(json.error);
-        showToast('Target deleted');
-        loadTargets();
-      } catch (e) {
-        showToast(e.message, false);
-      }
-    }
-
-    async function loadSshKeyStatus() {
-      try {
-        const r = await fetch('/api/settings/ssh-key');
-        const json = await r.json();
-        sshKeyStatus.value = json.hasKey;
-      } catch {}
-    }
-
-    async function saveSshKey() {
-      sshKeySaving.value = true;
-      sshKeyMsg.value = null;
-      try {
-        const r = await fetch('/api/settings/ssh-key', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ privateKey: sshKeyInput.value }),
-        });
-        const json = await r.json();
-        if (!r.ok) throw new Error(json.error);
-        sshKeyMsg.value = { ok: true, text: 'SSH key saved successfully.' };
-        sshKeyInput.value = '';
-        sshKeyStatus.value = true;
-      } catch (e) {
-        sshKeyMsg.value = { ok: false, text: e.message };
-      } finally {
-        sshKeySaving.value = false;
-      }
-    }
-
-    watch(tab, (t) => {
-      if (t === 'dashboard') loadDashboard();
-      if (t === 'targets') loadTargets();
-      if (t === 'settings') loadSshKeyStatus();
-    });
-
-    onMounted(() => {
-      loadDashboard();
-    });
-
-    return {
-      tab, toast, dashData, dashLoading,
-      targets, targetsLoading, editTarget, targetSaving, targetError,
-      sshKeyInput, sshKeyStatus, sshKeySaving, sshKeyMsg,
-      formatDate, formatSize, statusBadgeClass,
-      loadDashboard, triggerBackup, deleteBackup,
-      loadTargets, openTargetModal, closeTargetModal, saveTarget, deleteTarget,
-      loadSshKeyStatus, saveSshKey,
-    };
-  }
-}).mount('#app');
-</script>
+<script src="/app.js"></script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-# Deploy to vps1
+# coolify-mongo-backup – Deploy to vps1
 
 ## Prerequisites
 
@@ -68,7 +68,7 @@ ssh ubuntu@100.86.93.41 "cd /data/mongo-vault && docker-compose up -d --build"
 ## Local Development
 
 ```bash
-cd /home/jarancibia/ai/mongo-vault
+cd /home/jarancibia/ai/coolify-mongo-backup
 npm install
 # Start a local MongoDB (or use docker-compose for mongo only):
 docker compose up -d mongo

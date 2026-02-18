@@ -1,5 +1,5 @@
 {
-  "name": "mongo-vault",
+  "name": "coolify-mongo-backup",
   "version": "1.0.0",
   "description": "Scheduled remote MongoDB backup manager via SSH",
   "main": "src/server.js",
