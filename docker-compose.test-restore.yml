@@ -1,0 +1,12 @@
+version: "3.8"
+
+services:
+  mongo-restore-test:
+    image: mongo:7
+    container_name: mongo-restore-test
+    ports:
+      - "27018:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: testpass
+    restart: unless-stopped
