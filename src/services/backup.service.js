@@ -28,6 +28,29 @@ function listBackups(targetId) {
     .sort((a, b) => b.createdAt - a.createdAt);
 }
 
+function getBackupFilePath(targetId, filename) {
+  // Validate filename to prevent directory traversal
+  if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    throw new Error('Invalid filename');
+  }
+  
+  const filePath = path.join(getTargetDir(targetId), filename);
+  
+  // Ensure file exists and is within the data directory
+  if (!fs.existsSync(filePath)) {
+    throw new Error('Backup file not found');
+  }
+  
+  // Ensure the resolved path is still within the data directory
+  const resolvedPath = path.resolve(filePath);
+  const dataDirPath = path.resolve(DATA_DIR);
+  if (!resolvedPath.startsWith(dataDirPath)) {
+    throw new Error('Access denied');
+  }
+  
+  return filePath;
+}
+
 function listAllBackups() {
   if (!fs.existsSync(DATA_DIR)) return {};
   const result = {};
@@ -133,6 +156,7 @@ module.exports = {
   runBackup,
   listBackups,
   listAllBackups,
+  getBackupFilePath,
   deleteBackupFile,
   getStatus,
   getAllStatus,

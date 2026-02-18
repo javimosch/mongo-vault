@@ -254,6 +254,16 @@ createApp({
       }
     }
 
+    function downloadBackup(targetId, filename) {
+      // Create a temporary link element to trigger download
+      const link = document.createElement('a');
+      link.href = `/api/backups/download/${targetId}/${filename}`;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
     async function deleteBackup(targetId, filename) {
       if (!confirm(`Delete backup ${filename}?`)) return;
       try {
@@ -396,7 +406,7 @@ createApp({
       restoreCtx, openRestoreModal, closeRestoreModal, runRestore, reconnectJob, clearRestoreJob,
       auditEvents, auditLoading, auditFilters, loadAuditEvents, applyAuditFilters,
       formatDate, formatSize, statusBadgeClass, relativeTime,
-      loadDashboard, triggerBackup, deleteBackup,
+      loadDashboard, triggerBackup, downloadBackup, deleteBackup,
       loadTargets, openTargetModal, closeTargetModal, saveTarget, deleteTarget,
       loadSshKeyStatus, saveSshKey,
       progressTextarea,

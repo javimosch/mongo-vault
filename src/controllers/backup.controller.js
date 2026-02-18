@@ -43,6 +43,23 @@ async function triggerBackup(req, res) {
   }
 }
 
+async function downloadBackup(req, res) {
+  const { targetId, filename } = req.params;
+  try {
+    const filePath = backupService.getBackupFilePath(targetId, filename);
+    res.download(filePath, filename, (err) => {
+      if (err) {
+        console.error(`[backup] Download failed for ${targetId}/${filename}:`, err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Download failed' });
+        }
+      }
+    });
+  } catch (err) {
+    res.status(404).json({ error: err.message });
+  }
+}
+
 async function deleteBackup(req, res) {
   const { targetId, filename } = req.params;
   try {
@@ -63,4 +80,4 @@ async function getStatus(req, res) {
   }
 }
 
-module.exports = { listBackups, triggerBackup, deleteBackup, getStatus };
+module.exports = { listBackups, triggerBackup, downloadBackup, deleteBackup, getStatus };

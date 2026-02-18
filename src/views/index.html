@@ -88,6 +88,7 @@
                     <td class="text-xs">{{ formatSize(b.size) }}</td>
                     <td class="text-xs">{{ formatDate(b.createdAt) }}</td>
                     <td class="flex gap-1">
+                      <button class="btn btn-xs btn-success btn-outline" @click="downloadBackup(item.target.id, b.filename)">⬇ Download</button>
                       <button class="btn btn-xs btn-info btn-outline" @click="openRestoreModal(item.target.id, b.filename)">Restore</button>
                       <button class="btn btn-xs btn-error btn-outline" @click="deleteBackup(item.target.id, b.filename)">Delete</button>
                     </td>
