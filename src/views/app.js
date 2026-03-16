@@ -2,7 +2,7 @@ const { createApp, ref, onMounted, watch, nextTick } = Vue;
 
 createApp({
   setup() {
-    const tab = ref('dashboard');
+    const tab = ref("dashboard");
     const toast = ref(null);
 
     // Dashboard
@@ -14,31 +14,83 @@ createApp({
     // Targets
     const targets = ref([]);
     const targetsLoading = ref(false);
+    const targetUsage = ref({});
     const editTarget = ref({});
     const targetSaving = ref(false);
-    const targetError = ref('');
-    
+    const targetError = ref("");
+
+    async function loadDiskUsage(targetId) {
+      try {
+        const r = await fetch(`/api/targets/${targetId}/usage`);
+        if (!r.ok) return;
+        const json = await r.json();
+        targetUsage.value[targetId] = json;
+      } catch (e) {
+        console.error(`Failed to load usage for ${targetId}:`, e);
+      }
+    }
+
     // Cron Helper
     const cronHelper = ref({
-      type: 'daily',
+      type: "daily",
       hour: 2,
       day: 1, // Monday
       dayOfMonth: 1,
-      description: ''
+      description: "",
     });
 
     // Restore
-    const restoreCtx = ref({ sourceTargetId: '', filename: '', mode: 'existing', existingTargetId: '', custom: { sshHost: '127.0.0.1', sshUser: '', containerId: 'mongo-restore-test', mongoUser: 'root', mongoPassword: '', mongoAuthDb: 'admin' }, protectAdminDb: true, isReconnect: false, reconnectTarget: null, log: [], running: false, done: false, error: null });
+    const restoreCtx = ref({
+      sourceTargetId: "",
+      filename: "",
+      mode: "existing",
+      existingTargetId: "",
+      custom: {
+        sshHost: "127.0.0.1",
+        sshUser: "",
+        containerId: "mongo-restore-test",
+        mongoUser: "root",
+        mongoPassword: "",
+        mongoAuthDb: "admin",
+      },
+      protectAdminDb: true,
+      isReconnect: false,
+      reconnectTarget: null,
+      log: [],
+      running: false,
+      done: false,
+      error: null,
+    });
 
     // Audit
     const auditEvents = ref([]);
     const auditLoading = ref(false);
-    const auditFilters = ref({ action: '', outcome: '', dateRange: '' });
+    const auditFilters = ref({ action: "", outcome: "", dateRange: "" });
 
     function openRestoreModal(targetId, filename) {
-      restoreCtx.value = { sourceTargetId: targetId, filename, mode: 'existing', existingTargetId: targets.value[0]?.id || '', custom: { sshHost: '127.0.0.1', sshUser: '', containerId: 'mongo-restore-test', mongoUser: 'root', mongoPassword: '', mongoAuthDb: 'admin' }, protectAdminDb: true, isReconnect: false, reconnectTarget: null, log: [], running: false, done: false, error: null };
+      restoreCtx.value = {
+        sourceTargetId: targetId,
+        filename,
+        mode: "existing",
+        existingTargetId: targets.value[0]?.id || "",
+        custom: {
+          sshHost: "127.0.0.1",
+          sshUser: "",
+          containerId: "mongo-restore-test",
+          mongoUser: "root",
+          mongoPassword: "",
+          mongoAuthDb: "admin",
+        },
+        protectAdminDb: true,
+        isReconnect: false,
+        reconnectTarget: null,
+        log: [],
+        running: false,
+        done: false,
+        error: null,
+      };
       if (!targets.value.length) loadTargets();
-      document.getElementById('restore-modal').showModal();
+      document.getElementById("restore-modal").showModal();
     }
 
     function reconnectJob(job) {
@@ -48,30 +100,41 @@ createApp({
       if (job.progress && job.progress.length > 0) {
         log.push(...job.progress);
       }
-      Object.assign(ctx, { 
-        sourceTargetId: job.sourceTargetId, 
-        filename: job.filename, 
-        mode: 'existing', 
+      Object.assign(ctx, {
+        sourceTargetId: job.sourceTargetId,
+        filename: job.filename,
+        mode: "existing",
         isReconnect: true,
         reconnectTarget: job.restoreTarget || null,
-        log, 
-        running: job.status === 'running', 
-        done: job.status !== 'running', 
-        error: job.error || null 
+        log,
+        running: job.status === "running",
+        done: job.status !== "running",
+        error: job.error || null,
       });
-      document.getElementById('restore-modal').showModal();
-      if (job.status !== 'running') return;
+      document.getElementById("restore-modal").showModal();
+      if (job.status !== "running") return;
       const es = new EventSource(`/api/restores/progress/${job.jobId}`);
       es.onmessage = (e) => {
         const d = JSON.parse(e.data);
         if (d.line) ctx.log.push(d.line);
-        if (d.done) { ctx.running = false; ctx.done = true; ctx.error = d.error || null; es.close(); loadRestoreJobs(); }
+        if (d.done) {
+          ctx.running = false;
+          ctx.done = true;
+          ctx.error = d.error || null;
+          es.close();
+          loadRestoreJobs();
+        }
       };
-      es.onerror = () => { ctx.running = false; ctx.done = true; ctx.error = 'SSE connection lost'; es.close(); };
+      es.onerror = () => {
+        ctx.running = false;
+        ctx.done = true;
+        ctx.error = "SSE connection lost";
+        es.close();
+      };
     }
 
     function closeRestoreModal() {
-      document.getElementById('restore-modal').close();
+      document.getElementById("restore-modal").close();
       // Refresh jobs list in case status wasn't updated via SSE
       loadRestoreJobs();
     }
@@ -79,10 +142,18 @@ createApp({
     async function runRestore() {
       const ctx = restoreCtx.value;
       let restoreTarget;
-      if (ctx.mode === 'existing') {
-        const t = targets.value.find(x => x.id === ctx.existingTargetId);
-        if (!t) return showToast('Select a target', false);
-        restoreTarget = { sshHost: t.sshHost, sshUser: t.sshUser, containerId: t.containerId, mongoUser: t.mongoUser, mongoPassword: t.mongoPassword, mongoAuthDb: t.mongoAuthDb, protectAdminDb: ctx.protectAdminDb };
+      if (ctx.mode === "existing") {
+        const t = targets.value.find((x) => x.id === ctx.existingTargetId);
+        if (!t) return showToast("Select a target", false);
+        restoreTarget = {
+          sshHost: t.sshHost,
+          sshUser: t.sshUser,
+          containerId: t.containerId,
+          mongoUser: t.mongoUser,
+          mongoPassword: t.mongoPassword,
+          mongoAuthDb: t.mongoAuthDb,
+          protectAdminDb: ctx.protectAdminDb,
+        };
       } else {
         restoreTarget = { ...ctx.custom, protectAdminDb: ctx.protectAdminDb };
       }
@@ -91,7 +162,15 @@ createApp({
       ctx.done = false;
       ctx.error = null;
       try {
-        const r = await fetch('/api/restores/trigger', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sourceTargetId: ctx.sourceTargetId, filename: ctx.filename, restoreTarget }) });
+        const r = await fetch("/api/restores/trigger", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sourceTargetId: ctx.sourceTargetId,
+            filename: ctx.filename,
+            restoreTarget,
+          }),
+        });
         const json = await r.json();
         if (!r.ok) throw new Error(json.error);
         const jobId = json.jobId;
@@ -99,9 +178,20 @@ createApp({
         es.onmessage = (e) => {
           const d = JSON.parse(e.data);
           if (d.line) ctx.log.push(d.line);
-          if (d.done) { ctx.running = false; ctx.done = true; ctx.error = d.error || null; es.close(); loadRestoreJobs(); }
+          if (d.done) {
+            ctx.running = false;
+            ctx.done = true;
+            ctx.error = d.error || null;
+            es.close();
+            loadRestoreJobs();
+          }
         };
-        es.onerror = () => { ctx.running = false; ctx.done = true; ctx.error = 'SSE connection lost'; es.close(); };
+        es.onerror = () => {
+          ctx.running = false;
+          ctx.done = true;
+          ctx.error = "SSE connection lost";
+          es.close();
+        };
       } catch (e) {
         ctx.running = false;
         ctx.done = true;
@@ -111,12 +201,12 @@ createApp({
 
     async function loadRestoreJobs() {
       try {
-        const r = await fetch('/api/restores/status');
+        const r = await fetch("/api/restores/status");
         const json = await r.json();
         restoreJobs.value = (json.jobs || []).slice().reverse();
         console.log(`[app] Loaded ${restoreJobs.value.length} restore jobs`);
       } catch (e) {
-        console.error('[app] Failed to load restore jobs:', e);
+        console.error("[app] Failed to load restore jobs:", e);
       }
     }
 
@@ -124,44 +214,51 @@ createApp({
       auditLoading.value = true;
       try {
         const params = new URLSearchParams();
-        if (auditFilters.value.action) params.append('action', auditFilters.value.action);
-        if (auditFilters.value.outcome) params.append('outcome', auditFilters.value.outcome);
+        if (auditFilters.value.action)
+          params.append("action", auditFilters.value.action);
+        if (auditFilters.value.outcome)
+          params.append("outcome", auditFilters.value.outcome);
         if (auditFilters.value.dateRange) {
           const now = new Date();
-          if (auditFilters.value.dateRange === '24h') {
-            params.append('from', new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString());
-          } else if (auditFilters.value.dateRange === '7d') {
-            params.append('from', new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString());
+          if (auditFilters.value.dateRange === "24h") {
+            params.append(
+              "from",
+              new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(),
+            );
+          } else if (auditFilters.value.dateRange === "7d") {
+            params.append(
+              "from",
+              new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+            );
           }
         }
-        params.append('pageSize', '50');
-        
+        params.append("pageSize", "50");
+
         // Filter for restore-related actions if no specific action is set
         if (!auditFilters.value.action) {
-          params.append('action', 'restore.');
+          params.append("action", "restore.");
         }
-        
+
         const r = await fetch(`/saas/api/admin/audit?${params}`, {
           headers: {
-            'Authorization': 'Basic ' + btoa('admin:changeme')
-          }
+            Authorization: "Basic " + btoa("admin:changeme"),
+          },
         });
-        
+
         if (!r.ok) {
           throw new Error(`HTTP ${r.status}: ${r.statusText}`);
         }
-        
+
         const json = await r.json();
-        auditEvents.value = (json.events || []).map(evt => ({
+        auditEvents.value = (json.events || []).map((evt) => ({
           ...evt,
           id: evt._id || evt.id,
           at: evt.at || evt.createdAt,
-          details: evt.details || evt.meta
+          details: evt.details || evt.meta,
         }));
-        
       } catch (e) {
-        console.error('[app] Failed to load audit events:', e);
-        showToast('Failed to load audit events: ' + e.message, false);
+        console.error("[app] Failed to load audit events:", e);
+        showToast("Failed to load audit events: " + e.message, false);
         auditEvents.value = [];
       } finally {
         auditLoading.value = false;
@@ -175,10 +272,14 @@ createApp({
     async function clearRestoreJob(jobId) {
       if (!confirm(`Clear restore job ${jobId}?`)) return;
       try {
-        const r = await fetch('/api/restores/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jobId }) });
+        const r = await fetch("/api/restores/clear", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jobId }),
+        });
         const json = await r.json();
         if (!r.ok) throw new Error(json.error);
-        showToast('Restore job cleared');
+        showToast("Restore job cleared");
         loadRestoreJobs();
       } catch (e) {
         showToast(e.message, false);
@@ -186,57 +287,60 @@ createApp({
     }
 
     // Settings
-    const sshKeyInput = ref('');
+    const sshKeyInput = ref("");
     const sshKeyStatus = ref(null);
     const sshKeySaving = ref(false);
     const sshKeyMsg = ref(null);
 
     function showToast(text, ok = true) {
       toast.value = { text, ok };
-      setTimeout(() => { toast.value = null; }, 3000);
+      setTimeout(() => {
+        toast.value = null;
+      }, 3000);
     }
 
     function formatDate(d) {
-      if (!d) return '-';
+      if (!d) return "-";
       return new Date(d).toLocaleString();
     }
 
     function relativeTime(dateStr) {
-      if (!dateStr) return '';
+      if (!dateStr) return "";
       const now = new Date();
       const target = new Date(dateStr);
       const diffMs = target - now;
-      if (diffMs < 0) return '';
+      if (diffMs < 0) return "";
       const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
       const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-      if (diffHrs > 0) return `in ${diffHrs}h${diffMins ? ` ${diffMins}m` : ''}`;
+      if (diffHrs > 0)
+        return `in ${diffHrs}h${diffMins ? ` ${diffMins}m` : ""}`;
       if (diffMins > 0) return `in ${diffMins}m`;
-      return 'in <1m';
+      return "in <1m";
     }
 
     function formatSize(bytes) {
-      if (!bytes) return '0 B';
+      if (!bytes) return "0 B";
       const k = 1024;
-      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const sizes = ["B", "KB", "MB", "GB"];
       const i = Math.floor(Math.log(bytes) / Math.log(k));
-      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
     }
 
     function statusBadgeClass(status) {
-      if (status === 'success') return 'badge-success';
-      if (status === 'error') return 'badge-error';
-      if (status === 'running') return 'badge-warning';
-      return 'badge-ghost';
+      if (status === "success") return "badge-success";
+      if (status === "error") return "badge-error";
+      if (status === "running") return "badge-warning";
+      return "badge-ghost";
     }
 
     async function loadDashboard() {
       dashLoading.value = true;
       try {
-        const r = await fetch('/api/backups');
+        const r = await fetch("/api/backups");
         const json = await r.json();
         dashData.value = json.data || [];
       } catch (e) {
-        showToast('Failed to load dashboard', false);
+        showToast("Failed to load dashboard", false);
       } finally {
         dashLoading.value = false;
       }
@@ -244,10 +348,12 @@ createApp({
 
     async function triggerBackup(targetId) {
       try {
-        const r = await fetch(`/api/backups/trigger/${targetId}`, { method: 'POST' });
+        const r = await fetch(`/api/backups/trigger/${targetId}`, {
+          method: "POST",
+        });
         const json = await r.json();
         if (!r.ok) throw new Error(json.error);
-        showToast('Backup started');
+        showToast("Backup started");
         setTimeout(loadDashboard, 1500);
       } catch (e) {
         showToast(e.message, false);
@@ -256,7 +362,7 @@ createApp({
 
     function downloadBackup(targetId, filename) {
       // Create a temporary link element to trigger download
-      const link = document.createElement('a');
+      const link = document.createElement("a");
       link.href = `/api/backups/download/${targetId}/${filename}`;
       link.download = filename;
       document.body.appendChild(link);
@@ -267,10 +373,12 @@ createApp({
     async function deleteBackup(targetId, filename) {
       if (!confirm(`Delete backup ${filename}?`)) return;
       try {
-        const r = await fetch(`/api/backups/${targetId}/${filename}`, { method: 'DELETE' });
+        const r = await fetch(`/api/backups/${targetId}/${filename}`, {
+          method: "DELETE",
+        });
         const json = await r.json();
         if (!r.ok) throw new Error(json.error);
-        showToast('Backup deleted');
+        showToast("Backup deleted");
         loadDashboard();
       } catch (e) {
         showToast(e.message, false);
@@ -280,99 +388,140 @@ createApp({
     async function loadTargets() {
       targetsLoading.value = true;
       try {
-        const r = await fetch('/api/targets');
+        const r = await fetch("/api/targets");
         const json = await r.json();
         targets.value = json.targets || [];
+        // Fetch usage for each target
+        targets.value.forEach((t) => loadDiskUsage(t.id));
       } catch (e) {
-        showToast('Failed to load targets', false);
+        showToast("Failed to load targets", false);
       } finally {
         targetsLoading.value = false;
       }
     }
 
     function openTargetModal(t) {
-      targetError.value = '';
-      editTarget.value = t ? { ...t } : {
-        label: '', sshHost: '', sshUser: 'root', containerId: '',
-        mongoUser: '', mongoPassword: '', mongoAuthDb: 'admin',
-        cron: '0 2 * * *', retentionCount: 7, enabled: true
-      };
-      
+      targetError.value = "";
+      editTarget.value = t
+        ? { ...t }
+        : {
+            label: "",
+            sshHost: "",
+            sshUser: "root",
+            containerId: "",
+            mongoUser: "",
+            mongoPassword: "",
+            mongoAuthDb: "admin",
+            cron: "0 2 * * *",
+            retentionCount: 7,
+            enabled: true,
+          };
+
       // Initialize cron helper based on existing cron or defaults
       initializeCronHelper(editTarget.value.cron);
-      
-      document.getElementById('target-modal').showModal();
+
+      document.getElementById("target-modal").showModal();
     }
 
     function initializeCronHelper(cronExpression) {
       // Try to parse existing cron expression
-      const parts = cronExpression.split(' ');
+      const parts = cronExpression.split(" ");
       if (parts.length === 5) {
         const [minute, hour, day, month, weekday] = parts;
-        
+
         // Check for common patterns
-        if (day === '*' && weekday === '*' && month === '*') {
+        if (day === "*" && weekday === "*" && month === "*") {
           // Daily schedule
-          cronHelper.value = { type: 'daily', hour: parseInt(hour), day: 1, dayOfMonth: 1, description: `Daily at ${String(hour).padStart(2, '0')}:00` };
-        } else if (day === '*' && month === '*' && weekday !== '*') {
+          cronHelper.value = {
+            type: "daily",
+            hour: parseInt(hour),
+            day: 1,
+            dayOfMonth: 1,
+            description: `Daily at ${String(hour).padStart(2, "0")}:00`,
+          };
+        } else if (day === "*" && month === "*" && weekday !== "*") {
           // Weekly schedule
-          cronHelper.value = { type: 'weekly', hour: parseInt(hour), day: parseInt(weekday), dayOfMonth: 1, description: `Weekly on ${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][parseInt(weekday)]} at ${String(hour).padStart(2, '0')}:00` };
-        } else if (day !== '*' && weekday === '*' && month === '*') {
+          cronHelper.value = {
+            type: "weekly",
+            hour: parseInt(hour),
+            day: parseInt(weekday),
+            dayOfMonth: 1,
+            description: `Weekly on ${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][parseInt(weekday)]} at ${String(hour).padStart(2, "0")}:00`,
+          };
+        } else if (day !== "*" && weekday === "*" && month === "*") {
           // Monthly schedule
-          cronHelper.value = { type: 'monthly', hour: parseInt(hour), day: 1, dayOfMonth: parseInt(day), description: `Monthly on day ${day} at ${String(hour).padStart(2, '0')}:00` };
+          cronHelper.value = {
+            type: "monthly",
+            hour: parseInt(hour),
+            day: 1,
+            dayOfMonth: parseInt(day),
+            description: `Monthly on day ${day} at ${String(hour).padStart(2, "0")}:00`,
+          };
         } else {
           // Custom/complex expression
-          cronHelper.value = { type: 'custom', hour: 2, day: 1, dayOfMonth: 1, description: '' };
+          cronHelper.value = {
+            type: "custom",
+            hour: 2,
+            day: 1,
+            dayOfMonth: 1,
+            description: "",
+          };
         }
       } else {
         // Default to daily
-        cronHelper.value = { type: 'daily', hour: 2, day: 1, dayOfMonth: 1, description: 'Daily at 02:00' };
+        cronHelper.value = {
+          type: "daily",
+          hour: 2,
+          day: 1,
+          dayOfMonth: 1,
+          description: "Daily at 02:00",
+        };
       }
     }
 
     function updateCronExpression() {
       const { type, hour, day, dayOfMonth } = cronHelper.value;
-      let cron = '';
-      let description = '';
-      
+      let cron = "";
+      let description = "";
+
       switch (type) {
-        case 'daily':
+        case "daily":
           cron = `0 ${hour} * * *`;
-          description = `Daily at ${String(hour).padStart(2, '0')}:00`;
+          description = `Daily at ${String(hour).padStart(2, "0")}:00`;
           break;
-        case 'weekly':
+        case "weekly":
           cron = `0 ${hour} * * ${day}`;
-          description = `Weekly on ${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][day]} at ${String(hour).padStart(2, '0')}:00`;
+          description = `Weekly on ${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][day]} at ${String(hour).padStart(2, "0")}:00`;
           break;
-        case 'monthly':
+        case "monthly":
           cron = `0 ${hour} ${dayOfMonth} * *`;
-          description = `Monthly on day ${dayOfMonth} at ${String(hour).padStart(2, '0')}:00`;
+          description = `Monthly on day ${dayOfMonth} at ${String(hour).padStart(2, "0")}:00`;
           break;
-        case 'custom':
+        case "custom":
           // Don't modify custom cron expressions
           return;
       }
-      
+
       editTarget.value.cron = cron;
       cronHelper.value.description = description;
     }
 
     function closeTargetModal() {
-      document.getElementById('target-modal').close();
+      document.getElementById("target-modal").close();
     }
 
     async function saveTarget() {
       targetSaving.value = true;
-      targetError.value = '';
+      targetError.value = "";
       try {
-        const r = await fetch('/api/targets', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        const r = await fetch("/api/targets", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(editTarget.value),
         });
         const json = await r.json();
         if (!r.ok) throw new Error(json.error);
-        showToast('Target saved');
+        showToast("Target saved");
         closeTargetModal();
         loadTargets();
       } catch (e) {
@@ -383,12 +532,12 @@ createApp({
     }
 
     async function deleteTarget(id) {
-      if (!confirm('Delete this target? Backup files will remain.')) return;
+      if (!confirm("Delete this target? Backup files will remain.")) return;
       try {
-        const r = await fetch(`/api/targets/${id}`, { method: 'DELETE' });
+        const r = await fetch(`/api/targets/${id}`, { method: "DELETE" });
         const json = await r.json();
         if (!r.ok) throw new Error(json.error);
-        showToast('Target deleted');
+        showToast("Target deleted");
         loadTargets();
       } catch (e) {
         showToast(e.message, false);
@@ -397,7 +546,7 @@ createApp({
 
     async function loadSshKeyStatus() {
       try {
-        const r = await fetch('/api/settings/ssh-key');
+        const r = await fetch("/api/settings/ssh-key");
         const json = await r.json();
         sshKeyStatus.value = json.hasKey;
       } catch {}
@@ -407,15 +556,15 @@ createApp({
       sshKeySaving.value = true;
       sshKeyMsg.value = null;
       try {
-        const r = await fetch('/api/settings/ssh-key', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        const r = await fetch("/api/settings/ssh-key", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ privateKey: sshKeyInput.value }),
         });
         const json = await r.json();
         if (!r.ok) throw new Error(json.error);
-        sshKeyMsg.value = { ok: true, text: 'SSH key saved successfully.' };
-        sshKeyInput.value = '';
+        sshKeyMsg.value = { ok: true, text: "SSH key saved successfully." };
+        sshKeyInput.value = "";
         sshKeyStatus.value = true;
       } catch (e) {
         sshKeyMsg.value = { ok: false, text: e.message };
@@ -425,10 +574,23 @@ createApp({
     }
 
     watch(tab, (t) => {
-      if (t === 'dashboard') { loadDashboard(); loadRestoreJobs(); startRestorePoller(); }
-      if (t === 'targets') { loadTargets(); stopRestorePoller(); }
-      if (t === 'audit') { loadAuditEvents(); stopRestorePoller(); }
-      if (t === 'settings') { loadSshKeyStatus(); stopRestorePoller(); }
+      if (t === "dashboard") {
+        loadDashboard();
+        loadRestoreJobs();
+        startRestorePoller();
+      }
+      if (t === "targets") {
+        loadTargets();
+        stopRestorePoller();
+      }
+      if (t === "audit") {
+        loadAuditEvents();
+        stopRestorePoller();
+      }
+      if (t === "settings") {
+        loadSshKeyStatus();
+        stopRestorePoller();
+      }
     });
 
     function startRestorePoller() {
@@ -437,18 +599,26 @@ createApp({
     }
 
     function stopRestorePoller() {
-      if (restoreJobsTimer) { clearInterval(restoreJobsTimer); restoreJobsTimer = null; }
+      if (restoreJobsTimer) {
+        clearInterval(restoreJobsTimer);
+        restoreJobsTimer = null;
+      }
     }
 
     // Auto-scroll progress to bottom
     const progressTextarea = ref(null);
-    watch(() => restoreCtx.value.log, () => {
-      nextTick(() => {
-        if (progressTextarea.value) {
-          progressTextarea.value.scrollTop = progressTextarea.value.scrollHeight;
-        }
-      });
-    }, { deep: true });
+    watch(
+      () => restoreCtx.value.log,
+      () => {
+        nextTick(() => {
+          if (progressTextarea.value) {
+            progressTextarea.value.scrollTop =
+              progressTextarea.value.scrollHeight;
+          }
+        });
+      },
+      { deep: true },
+    );
 
     onMounted(() => {
       loadDashboard();
@@ -457,16 +627,51 @@ createApp({
     });
 
     return {
-      tab, toast, dashData, dashLoading, restoreJobs,
-      targets, targetsLoading, editTarget, targetSaving, targetError, cronHelper, updateCronExpression,
-      sshKeyInput, sshKeyStatus, sshKeySaving, sshKeyMsg,
-      restoreCtx, openRestoreModal, closeRestoreModal, runRestore, reconnectJob, clearRestoreJob,
-      auditEvents, auditLoading, auditFilters, loadAuditEvents, applyAuditFilters,
-      formatDate, formatSize, statusBadgeClass, relativeTime,
-      loadDashboard, triggerBackup, downloadBackup, deleteBackup,
-      loadTargets, openTargetModal, closeTargetModal, saveTarget, deleteTarget,
-      loadSshKeyStatus, saveSshKey,
+      tab,
+      toast,
+      dashData,
+      dashLoading,
+      restoreJobs,
+      targets,
+      targetsLoading,
+      targetUsage,
+      editTarget,
+      targetSaving,
+      targetError,
+      cronHelper,
+      updateCronExpression,
+      sshKeyInput,
+      sshKeyStatus,
+      sshKeySaving,
+      sshKeyMsg,
+
+      restoreCtx,
+      openRestoreModal,
+      closeRestoreModal,
+      runRestore,
+      reconnectJob,
+      clearRestoreJob,
+      auditEvents,
+      auditLoading,
+      auditFilters,
+      loadAuditEvents,
+      applyAuditFilters,
+      formatDate,
+      formatSize,
+      statusBadgeClass,
+      relativeTime,
+      loadDashboard,
+      triggerBackup,
+      downloadBackup,
+      deleteBackup,
+      loadTargets,
+      openTargetModal,
+      closeTargetModal,
+      saveTarget,
+      deleteTarget,
+      loadSshKeyStatus,
+      saveSshKey,
       progressTextarea,
     };
-  }
-}).mount('#app');
+  },
+}).mount("#app");
