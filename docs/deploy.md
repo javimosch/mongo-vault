@@ -4,7 +4,7 @@
 
 - vps1: `ubuntu@100.86.93.41` (Tailscale intranet)
 - vps1 has `docker-compose` (v1) installed
-- `/data/mongo-vault` directory exists on vps1
+- `/apps/mongo-vault` directory exists on vps1
 
 ## 1. Rsync from localhost
 
@@ -15,16 +15,16 @@ rsync -avz \
   --exclude='.git' \
   --exclude='ref-saasbackend' \
   /home/jarancibia/ai/mongo-vault/ \
-  ubuntu@100.86.93.41:/data/mongo-vault/
+  ubuntu@100.86.93.41:/apps/mongo-vault/
 ```
 
 ## 2. Create .env on vps1
 
-SSH into vps1 and create `/data/mongo-vault/.env`:
+SSH into vps1 and create `/apps/mongo-vault/.env`:
 
 ```bash
 ssh ubuntu@100.86.93.41
-cd /data/mongo-vault
+cd /apps/mongo-vault
 cp .env.example .env
 # Edit .env with production values:
 #   MONGODB_URI=mongodb://mongo:27017/mongo-vault
@@ -37,7 +37,7 @@ nano .env
 ## 3. Start the stack
 
 ```bash
-cd /data/mongo-vault
+cd /apps/mongo-vault
 docker-compose up -d --build
 ```
 
@@ -59,10 +59,10 @@ rsync -avz \
   --exclude='.git' \
   --exclude='ref-saasbackend' \
   /home/jarancibia/ai/mongo-vault/ \
-  ubuntu@100.86.93.41:/data/mongo-vault/
+  ubuntu@100.86.93.41:/apps/mongo-vault/
 
 # On vps1:
-ssh ubuntu@100.86.93.41 "cd /data/mongo-vault && docker-compose up -d --build"
+ssh ubuntu@100.86.93.41 "cd /apps/mongo-vault && docker-compose up -d --build"
 ```
 
 ## Local Development
