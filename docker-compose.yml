@@ -8,12 +8,14 @@ services:
     volumes:
       - ./data:/app/data
     env_file: .env
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017/mongo-vault
     depends_on:
       - mongo
     restart: unless-stopped
 
   mongo:
-    image: mongo:7
+    image: mongo:4.4.18
     ports:
       - "27017:27017"
     volumes:
