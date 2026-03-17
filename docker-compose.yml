@@ -16,7 +16,7 @@ services:
     restart: unless-stopped
 
   mongo:
-    image: mongo:4.4.18
+    image: mongo:6.0
     ports:
       - "27017:27017"
     volumes:
