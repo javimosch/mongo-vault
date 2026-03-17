@@ -1,7 +1,10 @@
 const fs = require('fs');
 const path = require('path');
-const { execOverSsh } = require('./ssh.service');
+const { execOverSsh, execCommand } = require('./ssh.service');
 const settingsService = require('./settings.service');
+const { exec } = require('child_process');
+const util = require('util');
+const execPromise = util.promisify(exec);
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 
@@ -180,6 +183,108 @@ function getAllStatus() {
   return runStatus;
 }
 
+async function getHostMetrics() {
+  const result = {
+    backupsSize: 0,
+    totalDisk: 0,
+    freeDisk: 0,
+  };
+
+  // Calculate backups size
+  try {
+    const calculateDirSize = (dir) => {
+      let size = 0;
+      if (!fs.existsSync(dir)) return 0;
+      const files = fs.readdirSync(dir, { withFileTypes: true });
+      for (const file of files) {
+        const fullPath = path.join(dir, file.name);
+        if (file.isDirectory()) {
+          size += calculateDirSize(fullPath);
+        } else {
+          size += fs.statSync(fullPath).size;
+        }
+      }
+      return size;
+    };
+    result.backupsSize = calculateDirSize(DATA_DIR);
+  } catch (err) {
+    console.error('[metrics] Failed to calculate backups size:', err.message);
+  }
+
+  // Get host disk usage
+  try {
+    const { stdout } = await execPromise(`df -B1 "${DATA_DIR}" | tail -n 1`);
+    const parts = stdout.trim().split(/\s+/);
+    if (parts.length >= 4) {
+      result.totalDisk = parseInt(parts[1], 10);
+      result.freeDisk = parseInt(parts[3], 10);
+    }
+  } catch (err) {
+    console.error('[metrics] Failed to get host disk usage:', err.message);
+  }
+
+  return result;
+}
+
+async function getTargetMetrics(target) {
+  const { sshHost, sshUser, containerId, mongoUser, mongoPassword, mongoAuthDb } = target;
+  const privateKey = await settingsService.getSshKey();
+  if (!privateKey) return { dbSize: 0 };
+
+  const command = [
+    `docker exec ${containerId}`,
+    `mongosh`,
+    `--username ${mongoUser}`,
+    `--password ${mongoPassword}`,
+    `--authenticationDatabase ${mongoAuthDb || 'admin'}`,
+    `--quiet --eval "EJSON.stringify(db.adminCommand({ listDatabases: 1 }))"`,
+  ].join(' ');
+
+  try {
+    const { stdout, exitCode } = await execCommand({
+      host: sshHost,
+      user: sshUser,
+      privateKey,
+      command,
+    });
+
+    if (exitCode === 0) {
+      const result = JSON.parse(stdout);
+      const totalSize = (result.databases || []).reduce((acc, db) => acc + (db.sizeOnDisk || 0), 0);
+      return { dbSize: totalSize };
+    }
+  } catch (err) {
+    // Try legacy mongo shell if mongosh fails
+    const legacyCommand = [
+      `docker exec ${containerId}`,
+      `mongo`,
+      `--username ${mongoUser}`,
+      `--password ${mongoPassword}`,
+      `--authenticationDatabase ${mongoAuthDb || 'admin'}`,
+      `--quiet --eval "JSON.stringify(db.adminCommand({ listDatabases: 1 }))"`,
+    ].join(' ');
+
+    try {
+      const { stdout, exitCode } = await execCommand({
+        host: sshHost,
+        user: sshUser,
+        privateKey,
+        command: legacyCommand,
+      });
+
+      if (exitCode === 0) {
+        const result = JSON.parse(stdout);
+        const totalSize = (result.databases || []).reduce((acc, db) => acc + (db.sizeOnDisk || 0), 0);
+        return { dbSize: totalSize };
+      }
+    } catch (e2) {
+      console.error(`[metrics] Failed to get target metrics for ${target.id}:`, e2.message);
+    }
+  }
+
+  return { dbSize: 0 };
+}
+
 module.exports = {
   runBackup,
   listBackups,
@@ -188,4 +293,6 @@ module.exports = {
   deleteBackupFile,
   getStatus,
   getAllStatus,
+  getHostMetrics,
+  getTargetMetrics,
 };
