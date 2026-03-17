@@ -87,4 +87,20 @@ async function getStatus(req, res) {
   }
 }
 
-module.exports = { listBackups, triggerBackup, downloadBackup, deleteBackup, getStatus };
+async function getMetrics(req, res) {
+  try {
+    const hostMetrics = await backupService.getHostMetrics();
+    const targets = await settingsService.getAllTargets();
+    const targetMetrics = {};
+
+    for (const t of targets) {
+      targetMetrics[t.id] = await backupService.getTargetMetrics(t);
+    }
+
+    res.json({ host: hostMetrics, targets: targetMetrics });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { listBackups, triggerBackup, downloadBackup, deleteBackup, getStatus, getMetrics };
