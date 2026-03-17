@@ -144,7 +144,9 @@ createApp({
         
         const r = await fetch(`/saas/api/admin/audit?${params}`, {
           headers: {
-            'Authorization': 'Basic ' + btoa('admin:changeme')
+            'Authorization': 'Basic ' + btoa('admin:changeme'),
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
           }
         });
         
