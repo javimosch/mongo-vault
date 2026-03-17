@@ -8,6 +8,7 @@ createApp({
     // Dashboard
     const dashData = ref([]);
     const dashLoading = ref(false);
+    const metrics = ref({ host: { backupsSize: 0, totalDisk: 0, freeDisk: 0 }, targets: {} });
     const restoreJobs = ref([]);
     let restoreJobsTimer = null;
 
@@ -237,6 +238,8 @@ createApp({
         const json = await r.json();
         dashData.value = json.data || [];
         
+        loadMetrics();
+
         // Auto-refresh if any backup is running
         const anyRunning = dashData.value.some(i => i.status.status === 'running');
         if (anyRunning && !dashboardTimer) {
@@ -286,6 +289,16 @@ createApp({
         loadDashboard();
       } catch (e) {
         showToast(e.message, false);
+      }
+    }
+
+    async function loadMetrics() {
+      try {
+        const r = await fetch('/api/backups/metrics');
+        const json = await r.json();
+        metrics.value = json;
+      } catch (e) {
+        console.error('[app] Failed to load metrics:', e);
       }
     }
 
@@ -469,7 +482,7 @@ createApp({
     });
 
     return {
-      tab, toast, dashData, dashLoading, restoreJobs,
+      tab, toast, dashData, dashLoading, metrics, restoreJobs,
       targets, targetsLoading, editTarget, targetSaving, targetError, cronHelper, updateCronExpression,
       sshKeyInput, sshKeyStatus, sshKeySaving, sshKeyMsg,
       restoreCtx, openRestoreModal, closeRestoreModal, runRestore, reconnectJob, clearRestoreJob,

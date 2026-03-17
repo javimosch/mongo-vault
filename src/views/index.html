@@ -49,13 +49,45 @@
       </div>
 
       <div v-else class="space-y-6">
+        <!-- Host Metrics -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div class="stats shadow bg-base-100">
+            <div class="stat">
+              <div class="stat-title text-xs">Backups Disk Usage</div>
+              <div class="stat-value text-primary text-2xl">{{ formatSize(metrics.host.backupsSize) }}</div>
+              <div class="stat-desc text-xs">on host system</div>
+            </div>
+          </div>
+          <div class="stats shadow bg-base-100">
+            <div class="stat">
+              <div class="stat-title text-xs">Host Free Space</div>
+              <div class="stat-value text-secondary text-2xl">{{ formatSize(metrics.host.freeDisk) }}</div>
+              <div class="stat-desc text-xs">Total: {{ formatSize(metrics.host.totalDisk) }}</div>
+            </div>
+          </div>
+          <div class="stats shadow bg-base-100">
+            <div class="stat">
+              <div class="stat-title text-xs">Disk Usage</div>
+              <div class="stat-value text-2xl">{{ Math.round((metrics.host.totalDisk - metrics.host.freeDisk) / metrics.host.totalDisk * 100) }}%</div>
+              <div class="stat-desc text-xs">
+                <progress class="progress progress-primary w-full" :value="metrics.host.totalDisk - metrics.host.freeDisk" :max="metrics.host.totalDisk"></progress>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div v-for="item in dashData" :key="item.target.id" class="card bg-base-100 shadow">
           <div class="card-body">
             <div class="flex flex-wrap justify-between items-start gap-2">
               <div>
                 <h3 class="card-title text-lg">{{ item.target.label || item.target.id }}</h3>
                 <p class="text-sm text-base-content/60">{{ item.target.sshUser }}@{{ item.target.sshHost }} · {{ item.target.containerId }}</p>
-                <p class="text-xs text-base-content/50 mt-1">Cron: <code>{{ item.target.cron || '0 2 * * *' }}</code> · Retention: {{ item.target.retentionCount || 7 }} backups</p>
+                <div class="flex gap-2 items-center mt-1">
+                  <p class="text-xs text-base-content/50">Cron: <code>{{ item.target.cron || '0 2 * * *' }}</code> · Retention: {{ item.target.retentionCount || 7 }} backups</p>
+                  <span v-if="metrics.targets[item.target.id]?.dbSize" class="badge badge-outline badge-xs text-primary/70">
+                    DB Size: ~{{ formatSize(metrics.targets[item.target.id].dbSize) }}
+                  </span>
+                </div>
               </div>
               <div class="flex flex-col items-end gap-1">
                 <div class="flex gap-2 items-center">
