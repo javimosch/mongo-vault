@@ -18,8 +18,10 @@ function ensureDir(dir) {
 function listBackups(targetId) {
   const dir = getTargetDir(targetId);
   if (!fs.existsSync(dir)) return [];
+  const activeFilename = runStatus[targetId]?.status === 'running' ? runStatus[targetId].filename : null;
+
   return fs.readdirSync(dir)
-    .filter((f) => f.endsWith('.gz'))
+    .filter((f) => f.endsWith('.gz') && f !== activeFilename)
     .map((f) => {
       const full = path.join(dir, f);
       const stat = fs.statSync(full);
@@ -87,13 +89,17 @@ function deleteBackupFile(targetId, filename) {
 async function runBackup(target) {
   const { id, sshHost, sshUser, containerId, mongoUser, mongoPassword, mongoAuthDb, retentionCount = 7 } = target;
 
+  const now = new Date();
   const privateKey = await settingsService.getSshKey();
-  if (!privateKey) throw new Error('SSH private key not configured. Go to Settings to add it.');
+  if (!privateKey) {
+    const err = 'SSH private key not configured. Go to Settings to add it.';
+    runStatus[id] = { status: 'error', startedAt: now, finishedAt: new Date(), filename: null, error: err };
+    throw new Error(err);
+  }
 
   const targetDir = getTargetDir(id);
   ensureDir(targetDir);
 
-  const now = new Date();
   const ts = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const filename = `mongo-${ts}.gz`;
   const filePath = path.join(targetDir, filename);
@@ -107,9 +113,17 @@ async function runBackup(target) {
     `--archive --gzip`,
   ].join(' ');
 
-  runStatus[id] = { status: 'running', startedAt: now, filename, error: null };
+  runStatus[id] = { status: 'running', startedAt: now, filename, bytesRead: 0, error: null };
 
   const outStream = fs.createWriteStream(filePath);
+  
+  // Track bytes written to show progress
+  let bytesRead = 0;
+  const progressInterval = setInterval(() => {
+    if (runStatus[id] && runStatus[id].status === 'running') {
+      runStatus[id].bytesRead = bytesRead;
+    }
+  }, 1000);
 
   try {
     const { exitCode, stderr } = await execOverSsh({
@@ -117,7 +131,21 @@ async function runBackup(target) {
       user: sshUser,
       privateKey,
       command,
-      outStream: outStream,
+      outStream: {
+        write: (chunk) => {
+          bytesRead += chunk.length;
+          return outStream.write(chunk);
+        },
+        end: (cb) => {
+          clearInterval(progressInterval);
+          outStream.end(cb);
+        },
+        on: (event, cb) => outStream.on(event, cb),
+        destroy: () => {
+          clearInterval(progressInterval);
+          outStream.destroy();
+        }
+      },
     });
 
     await new Promise((res) => outStream.end(res));
@@ -131,7 +159,7 @@ async function runBackup(target) {
 
     applyRotation(id, retentionCount);
 
-    runStatus[id] = { status: 'success', startedAt: now, finishedAt: new Date(), filename, error: null };
+    runStatus[id] = { status: 'success', startedAt: now, finishedAt: new Date(), filename, bytesRead, error: null };
     console.log(`[backup] Completed backup for target ${id}: ${filename}`);
     return { filename };
   } catch (err) {

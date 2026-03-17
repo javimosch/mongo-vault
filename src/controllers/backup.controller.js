@@ -37,6 +37,13 @@ async function triggerBackup(req, res) {
       console.error(`[backup] Async trigger failed for ${targetId}:`, err.message);
     });
 
+    // Wait a bit to catch immediate errors (like missing SSH key)
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const status = backupService.getStatus(targetId);
+    if (status.status === 'error' && status.error) {
+      return res.status(500).json({ error: status.error });
+    }
+
     res.json({ ok: true, message: 'Backup started' });
   } catch (err) {
     res.status(500).json({ error: err.message });
