@@ -1,1003 +1,509 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Coolify Mongo Backup</title>
-    <link
-      href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css"
-      rel="stylesheet"
-    />
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
-    <style>
-      [v-cloak] {
-        display: none;
-      }
-      .tab-active {
-        border-bottom: 2px solid currentColor;
-      }
-    </style>
-  </head>
-  <body class="bg-base-200 min-h-screen" data-theme="night">
-    <div id="app" v-cloak>
-      <div class="navbar bg-base-100 shadow-md px-4">
-        <div class="flex-1">
-          <span class="text-xl font-bold text-primary"
-            >🗄 Coolify Mongo Backup</span
-          >
-        </div>
-        <div class="flex-none">
-          <div class="tabs tabs-boxed bg-base-200">
-            <a
-              class="tab"
-              :class="{ 'tab-active': tab === 'dashboard' }"
-              @click="tab='dashboard'"
-              >Dashboard</a
-            >
-            <a
-              class="tab"
-              :class="{ 'tab-active': tab === 'targets' }"
-              @click="tab='targets'"
-              >Targets</a
-            >
-            <a
-              class="tab"
-              :class="{ 'tab-active': tab === 'audit' }"
-              @click="tab='audit'"
-              >Audit</a
-            >
-            <a
-              class="tab"
-              :class="{ 'tab-active': tab === 'settings' }"
-              @click="tab='settings'"
-              >Settings</a
-            >
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Coolify Mongo Backup</title>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <style>
+    [v-cloak] { display: none; }
+    .tab-active { border-bottom: 2px solid currentColor; }
+  </style>
+</head>
+<body class="bg-base-200 min-h-screen" data-theme="night">
+<div id="app" v-cloak>
+  <div class="navbar bg-base-100 shadow-md px-4">
+    <div class="flex-1">
+      <span class="text-xl font-bold text-primary">🗄 Coolify Mongo Backup</span>
+    </div>
+    <div class="flex-none">
+      <div class="tabs tabs-boxed bg-base-200">
+        <a class="tab" :class="{ 'tab-active': tab === 'dashboard' }" @click="tab='dashboard'">Dashboard</a>
+        <a class="tab" :class="{ 'tab-active': tab === 'targets' }" @click="tab='targets'">Targets</a>
+        <a class="tab" :class="{ 'tab-active': tab === 'audit' }" @click="tab='audit'">Audit</a>
+        <a class="tab" :class="{ 'tab-active': tab === 'settings' }" @click="tab='settings'">Settings</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="container mx-auto p-4 max-w-6xl">
+
+    <!-- DASHBOARD TAB -->
+    <div v-if="tab === 'dashboard'">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-2xl font-bold">Backup Dashboard</h2>
+        <button class="btn btn-sm btn-ghost" @click="loadDashboard">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          Refresh
+        </button>
+      </div>
+
+      <div v-if="dashLoading" class="flex justify-center py-12">
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+      </div>
+
+      <div v-else-if="dashData.length === 0" class="alert alert-info">
+        <span>No backup targets configured. Go to the <strong>Targets</strong> tab to add one.</span>
+      </div>
+
+      <div v-else class="space-y-6">
+        <div v-for="item in dashData" :key="item.target.id" class="card bg-base-100 shadow">
+          <div class="card-body">
+            <div class="flex flex-wrap justify-between items-start gap-2">
+              <div>
+                <h3 class="card-title text-lg">{{ item.target.label || item.target.id }}</h3>
+                <p class="text-sm text-base-content/60">{{ item.target.sshUser }}@{{ item.target.sshHost }} · {{ item.target.containerId }}</p>
+                <p class="text-xs text-base-content/50 mt-1">Cron: <code>{{ item.target.cron || '0 2 * * *' }}</code> · Retention: {{ item.target.retentionCount || 7 }} backups</p>
+              </div>
+              <div class="flex flex-col items-end gap-1">
+                <div class="flex gap-2 items-center">
+                  <span v-if="item.status.status === 'running'" class="text-xs font-mono text-warning mr-1">
+                    {{ formatSize(item.status.bytesRead) }}
+                  </span>
+                  <span class="badge" :class="statusBadgeClass(item.status.status)">{{ item.status.status || 'idle' }}</span>
+                  <button class="btn btn-sm btn-primary" :disabled="item.status.status === 'running'" @click="triggerBackup(item.target.id)">
+                    <span v-if="item.status.status === 'running'" class="loading loading-spinner loading-xs"></span>
+                    <span v-else>▶ Run Now</span>
+                  </button>
+                </div>
+                <p v-if="item.nextRun" class="text-xs text-base-content/50">
+                  Next: {{ formatDate(item.nextRun) }}
+                  <span v-if="relativeTime(item.nextRun)" class="text-xs text-primary/60 font-normal" :title="'Next run: ' + formatDate(item.nextRun)"> ({{ relativeTime(item.nextRun) }})</span>
+                </p>
+                <p v-if="item.status.finishedAt" class="text-xs text-base-content/50">Last: {{ formatDate(item.status.finishedAt) }}</p>
+                <p v-if="item.status.error" class="text-xs text-error max-w-xs truncate" :title="item.status.error">⚠ {{ item.status.error }}</p>
+              </div>
+            </div>
+
+            <div class="divider my-2"></div>
+
+            <div v-if="item.backups.length === 0" class="text-sm text-base-content/50">No backups yet.</div>
+            <div v-else class="overflow-x-auto">
+              <table class="table table-sm">
+                <thead>
+                  <tr><th>Filename</th><th>Size</th><th>Created</th><th></th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="b in item.backups" :key="b.filename">
+                    <td class="font-mono text-xs">{{ b.filename }}</td>
+                    <td class="text-xs">{{ formatSize(b.size) }}</td>
+                    <td class="text-xs">{{ formatDate(b.createdAt) }}</td>
+                    <td class="flex gap-1">
+                      <button class="btn btn-xs btn-success btn-outline" @click="downloadBackup(item.target.id, b.filename)">⬇ Download</button>
+                      <button class="btn btn-xs btn-info btn-outline" @click="openRestoreModal(item.target.id, b.filename)">Restore</button>
+                      <button class="btn btn-xs btn-error btn-outline" @click="deleteBackup(item.target.id, b.filename)">Delete</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
 
-      <div class="container mx-auto p-4 max-w-6xl">
-        <!-- DASHBOARD TAB -->
-        <div v-if="tab === 'dashboard'">
-          <div class="flex justify-between items-center mb-4">
-            <h2 class="text-2xl font-bold">Backup Dashboard</h2>
-            <button class="btn btn-sm btn-ghost" @click="loadDashboard">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="h-4 w-4 mr-1"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                />
-              </svg>
-              Refresh
-            </button>
-          </div>
-
-          <div v-if="dashLoading" class="flex justify-center py-12">
-            <span
-              class="loading loading-spinner loading-lg text-primary"
-            ></span>
-          </div>
-
-          <div v-else-if="dashData.length === 0" class="alert alert-info">
-            <span
-              >No backup targets configured. Go to the
-              <strong>Targets</strong> tab to add one.</span
-            >
-          </div>
-
-          <div v-else class="space-y-6">
-            <div
-              v-for="item in dashData"
-              :key="item.target.id"
-              class="card bg-base-100 shadow"
-            >
-              <div class="card-body">
-                <div class="flex flex-wrap justify-between items-start gap-2">
-                  <div>
-                    <h3 class="card-title text-lg">
-                      {{ item.target.label || item.target.id }}
-                    </h3>
-                    <p class="text-sm text-base-content/60">
-                      {{ item.target.sshUser }}@{{ item.target.sshHost }} · {{
-                      item.target.containerId }}
-                    </p>
-                    <p class="text-xs text-base-content/50 mt-1">
-                      Cron: <code>{{ item.target.cron || '0 2 * * *' }}</code> ·
-                      Retention: {{ item.target.retentionCount || 7 }} backups
-                    </p>
-                  </div>
-                  <div class="flex flex-col items-end gap-1">
-                    <div class="flex gap-2 items-center">
-                      <span
-                        class="badge"
-                        :class="statusBadgeClass(item.status.status)"
-                        >{{ item.status.status || 'idle' }}</span
-                      >
-                      <button
-                        class="btn btn-sm btn-primary"
-                        :disabled="item.status.status === 'running'"
-                        @click="triggerBackup(item.target.id)"
-                      >
-                        <span
-                          v-if="item.status.status === 'running'"
-                          class="loading loading-spinner loading-xs"
-                        ></span>
-                        <span v-else>▶ Run Now</span>
+      <!-- RESTORE JOBS PANEL -->
+      <div v-if="restoreJobs.length" class="mt-6">
+        <h3 class="text-lg font-bold mb-2">Restore Jobs</h3>
+        <div class="card bg-base-100 shadow">
+          <div class="card-body p-0">
+            <table class="table table-sm">
+              <thead>
+                <tr><th>File</th><th>Target</th><th>Started</th><th>Status</th><th></th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="job in restoreJobs" :key="job.jobId">
+                  <td class="font-mono text-xs">{{ job.filename }}</td>
+                  <td class="text-xs text-base-content/60">{{ job.sourceTargetId }}</td>
+                  <td class="text-xs">{{ formatDate(job.startedAt) }}</td>
+                  <td>
+                    <span class="badge badge-sm" :class="statusBadgeClass(job.status)">
+                      <span v-if="job.status === 'running'" class="loading loading-spinner loading-xs mr-1"></span>
+                      {{ job.status }}
+                    </span>
+                  </td>
+                  <td>
+                    <div class="flex gap-1">
+                      <button class="btn btn-xs btn-info btn-outline" @click="reconnectJob(job)">
+                        {{ job.status === 'running' ? 'Reconnect' : 'View' }}
                       </button>
+                      <button class="btn btn-xs btn-error btn-outline" @click="clearRestoreJob(job.jobId)">Clear</button>
                     </div>
-                    <p v-if="item.nextRun" class="text-xs text-base-content/50">
-                      Next: {{ formatDate(item.nextRun) }}
-                      <span
-                        v-if="relativeTime(item.nextRun)"
-                        class="text-xs text-primary/60 font-normal"
-                        :title="'Next run: ' + formatDate(item.nextRun)"
-                      >
-                        ({{ relativeTime(item.nextRun) }})</span
-                      >
-                    </p>
-                    <p
-                      v-if="item.status.finishedAt"
-                      class="text-xs text-base-content/50"
-                    >
-                      Last: {{ formatDate(item.status.finishedAt) }}
-                    </p>
-                    <p
-                      v-if="item.status.error"
-                      class="text-xs text-error max-w-xs truncate"
-                      :title="item.status.error"
-                    >
-                      ⚠ {{ item.status.error }}
-                    </p>
-                  </div>
-                </div>
-
-                <div class="divider my-2"></div>
-
-                <div
-                  v-if="item.backups.length === 0"
-                  class="text-sm text-base-content/50"
-                >
-                  No backups yet.
-                </div>
-                <div v-else class="overflow-x-auto">
-                  <table class="table table-sm">
-                    <thead>
-                      <tr>
-                        <th>Filename</th>
-                        <th>Size</th>
-                        <th>Created</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="b in item.backups" :key="b.filename">
-                        <td class="font-mono text-xs">{{ b.filename }}</td>
-                        <td class="text-xs">{{ formatSize(b.size) }}</td>
-                        <td class="text-xs">{{ formatDate(b.createdAt) }}</td>
-                        <td class="flex gap-1">
-                          <button
-                            class="btn btn-xs btn-success btn-outline"
-                            @click="downloadBackup(item.target.id, b.filename)"
-                          >
-                            ⬇ Download
-                          </button>
-                          <button
-                            class="btn btn-xs btn-info btn-outline"
-                            @click="openRestoreModal(item.target.id, b.filename)"
-                          >
-                            Restore
-                          </button>
-                          <button
-                            class="btn btn-xs btn-error btn-outline"
-                            @click="deleteBackup(item.target.id, b.filename)"
-                          >
-                            Delete
-                          </button>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-
-          <!-- RESTORE JOBS PANEL -->
-          <div v-if="restoreJobs.length" class="mt-6">
-            <h3 class="text-lg font-bold mb-2">Restore Jobs</h3>
-            <div class="card bg-base-100 shadow">
-              <div class="card-body p-0">
-                <table class="table table-sm">
-                  <thead>
-                    <tr>
-                      <th>File</th>
-                      <th>Target</th>
-                      <th>Started</th>
-                      <th>Status</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="job in restoreJobs" :key="job.jobId">
-                      <td class="font-mono text-xs">{{ job.filename }}</td>
-                      <td class="text-xs text-base-content/60">
-                        {{ job.sourceTargetId }}
-                      </td>
-                      <td class="text-xs">{{ formatDate(job.startedAt) }}</td>
-                      <td>
-                        <span
-                          class="badge badge-sm"
-                          :class="statusBadgeClass(job.status)"
-                        >
-                          <span
-                            v-if="job.status === 'running'"
-                            class="loading loading-spinner loading-xs mr-1"
-                          ></span>
-                          {{ job.status }}
-                        </span>
-                      </td>
-                      <td>
-                        <div class="flex gap-1">
-                          <button
-                            class="btn btn-xs btn-info btn-outline"
-                            @click="reconnectJob(job)"
-                          >
-                            {{ job.status === 'running' ? 'Reconnect' : 'View'
-                            }}
-                          </button>
-                          <button
-                            class="btn btn-xs btn-error btn-outline"
-                            @click="clearRestoreJob(job.jobId)"
-                          >
-                            Clear
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- TARGETS TAB -->
-        <div v-if="tab === 'targets'">
-          <div class="flex justify-between items-center mb-4">
-            <h2 class="text-2xl font-bold">Backup Targets</h2>
-            <button
-              class="btn btn-primary btn-sm"
-              @click="openTargetModal(null)"
-            >
-              + Add Target
-            </button>
-          </div>
-
-          <div v-if="targetsLoading" class="flex justify-center py-12">
-            <span
-              class="loading loading-spinner loading-lg text-primary"
-            ></span>
-          </div>
-
-          <div v-else-if="targets.length === 0" class="alert alert-info">
-            <span
-              >No targets yet. Click <strong>+ Add Target</strong> to create
-              one.</span
-            >
-          </div>
-
-          <div v-else class="grid gap-4 md:grid-cols-2">
-            <div
-              v-for="t in targets"
-              :key="t.id"
-              class="card bg-base-100 shadow"
-            >
-              <div class="card-body">
-                <h3 class="card-title">{{ t.label || t.id }}</h3>
-                <p class="text-sm text-base-content/60">
-                  {{ t.sshUser }}@{{ t.sshHost }}
-                </p>
-                <p class="text-xs text-base-content/50">
-                  Container: {{ t.containerId }}
-                </p>
-                <p class="text-xs text-base-content/50">
-                  Cron: <code>{{ t.cron || '0 2 * * *' }}</code>
-                </p>
-                <div
-                  v-if="targetUsage[t.id]"
-                  class="mt-2 p-2 bg-base-200 rounded text-xs flex justify-between items-center"
-                >
-                  <div>
-                    <span class="font-semibold">Disk:</span> {{
-                    targetUsage[t.id].used }} / {{ targetUsage[t.id].size }} ({{
-                    targetUsage[t.id].usePercent }})
-                  </div>
-                  <progress
-                    class="progress progress-primary w-24"
-                    :value="targetUsage[t.id].usePercent.replace('%', '')"
-                    max="100"
-                  ></progress>
-                </div>
-                <div class="flex gap-2 items-center mt-1">
-                  <span
-                    class="badge"
-                    :class="t.enabled ? 'badge-success' : 'badge-ghost'"
-                    >{{ t.enabled ? 'Enabled' : 'Disabled' }}</span
-                  >
-                </div>
-                <div class="card-actions justify-end mt-2">
-                  <button
-                    class="btn btn-sm btn-outline"
-                    @click="openTargetModal(t)"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    class="btn btn-sm btn-error btn-outline"
-                    @click="deleteTarget(t.id)"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- SETTINGS TAB -->
-        <div v-if="tab === 'settings'">
-          <h2 class="text-2xl font-bold mb-4">Settings</h2>
-          <div class="card bg-base-100 shadow max-w-2xl">
-            <div class="card-body">
-              <h3 class="card-title">SSH Private Key</h3>
-              <p class="text-sm text-base-content/60 mb-2">
-                Paste the content of your SSH private key (e.g.
-                <code>~/.ssh/id_rsa</code>). It will be stored encrypted in the
-                database.
-              </p>
-              <div v-if="sshKeyStatus !== null" class="mb-2">
-                <span
-                  class="badge"
-                  :class="sshKeyStatus ? 'badge-success' : 'badge-warning'"
-                >
-                  {{ sshKeyStatus ? '✓ SSH key is configured' : '⚠ No SSH key
-                  configured' }}
-                </span>
-              </div>
-              <textarea
-                v-model="sshKeyInput"
-                class="textarea textarea-bordered font-mono text-xs h-48 w-full"
-                placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"
-              ></textarea>
-              <div class="card-actions justify-end mt-2">
-                <button
-                  class="btn btn-primary"
-                  :disabled="!sshKeyInput.trim() || sshKeySaving"
-                  @click="saveSshKey"
-                >
-                  <span
-                    v-if="sshKeySaving"
-                    class="loading loading-spinner loading-xs"
-                  ></span>
-                  Save Key
-                </button>
-              </div>
-              <div
-                v-if="sshKeyMsg"
-                class="alert mt-2"
-                :class="sshKeyMsg.ok ? 'alert-success' : 'alert-error'"
-              >
-                <span>{{ sshKeyMsg.text }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- AUDIT TAB -->
-        <div v-if="tab === 'audit'">
-          <div class="flex justify-between items-center mb-4">
-            <h2 class="text-2xl font-bold">Audit Log</h2>
-            <button class="btn btn-primary btn-sm" @click="loadAuditEvents">
-              <span
-                v-if="auditLoading"
-                class="loading loading-spinner loading-xs"
-              ></span>
-              Refresh
-            </button>
-          </div>
-
-          <!-- Filters -->
-          <div class="card bg-base-100 shadow mb-4">
-            <div class="card-body p-4">
-              <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
-                <div class="form-control">
-                  <label class="label"
-                    ><span class="label-text">Action</span></label
-                  >
-                  <select
-                    v-model="auditFilters.action"
-                    class="select select-bordered select-sm"
-                  >
-                    <option value="">All Actions</option>
-                    <option value="restore.trigger">Restore Trigger</option>
-                    <option value="restore.complete">Restore Complete</option>
-                    <option value="restore.error">Restore Error</option>
-                  </select>
-                </div>
-                <div class="form-control">
-                  <label class="label"
-                    ><span class="label-text">Outcome</span></label
-                  >
-                  <select
-                    v-model="auditFilters.outcome"
-                    class="select select-bordered select-sm"
-                  >
-                    <option value="">All</option>
-                    <option value="success">Success</option>
-                    <option value="failure">Failure</option>
-                  </select>
-                </div>
-                <div class="form-control">
-                  <label class="label"
-                    ><span class="label-text">Date Range</span></label
-                  >
-                  <select
-                    v-model="auditFilters.dateRange"
-                    class="select select-bordered select-sm"
-                  >
-                    <option value="">All Time</option>
-                    <option value="24h">Last 24 Hours</option>
-                    <option value="7d">Last 7 Days</option>
-                  </select>
-                </div>
-                <div class="form-control">
-                  <label class="label">&nbsp;</label>
-                  <button
-                    class="btn btn-outline btn-sm"
-                    @click="applyAuditFilters"
-                  >
-                    Apply Filters
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Audit Events Table -->
-          <div class="card bg-base-100 shadow">
-            <div class="card-body p-0">
-              <div class="overflow-x-auto">
-                <table class="table table-sm">
-                  <thead>
-                    <tr>
-                      <th>Timestamp</th>
-                      <th>Actor</th>
-                      <th>Action</th>
-                      <th>Entity</th>
-                      <th>Outcome</th>
-                      <th>Details</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="event in auditEvents" :key="event.id">
-                      <td class="text-xs">{{ formatDate(event.at) }}</td>
-                      <td class="text-xs">
-                        <span class="badge badge-outline"
-                          >{{ event.actorType }}</span
-                        >
-                        <span v-if="event.actorUserId" class="text-xs ml-1"
-                          >{{ event.actorUserId?.email || event.actorId }}</span
-                        >
-                      </td>
-                      <td class="text-xs font-mono">{{ event.action }}</td>
-                      <td class="text-xs">{{ event.entityType || '-' }}</td>
-                      <td>
-                        <span
-                          class="badge badge-sm"
-                          :class="event.outcome === 'success' ? 'badge-success' : 'badge-error'"
-                        >
-                          {{ event.outcome }}
-                        </span>
-                      </td>
-                      <td class="text-xs">
-                        <div v-if="event.meta?.jobId" class="font-mono">
-                          Job: {{ event.meta.jobId }}
-                        </div>
-                        <div v-if="event.meta?.filename">
-                          File: {{ event.meta.filename }}
-                        </div>
-                        <div v-if="event.meta?.sourceTargetId">
-                          Target: {{ event.meta.sourceTargetId }}
-                        </div>
-                        <div v-if="event.error" class="text-error">
-                          {{ event.error }}
-                        </div>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-                <div v-if="auditLoading" class="p-4 text-center">
-                  <span class="loading loading-spinner"></span>
-                </div>
-                <div
-                  v-if="!auditLoading && auditEvents.length === 0"
-                  class="p-4 text-center text-base-content/60"
-                >
-                  No audit events found
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- RESTORE MODAL -->
-      <dialog id="restore-modal" class="modal">
-        <div class="modal-box w-11/12 max-w-2xl">
-          <h3 class="font-bold text-lg mb-1">
-            {{ restoreCtx.isReconnect ? 'Reconnect to Restore' : 'Restore
-            Backup' }}
-          </h3>
-          <p class="text-sm text-base-content/60 mb-3">
-            File: <code class="text-xs">{{ restoreCtx.filename }}</code>
-          </p>
-          <div v-if="!restoreCtx.isReconnect" class="form-control mb-2">
-            <label class="label"
-              ><span class="label-text font-semibold"
-                >Restore Target</span
-              ></label
-            >
-            <select v-model="restoreCtx.mode" class="select select-bordered">
-              <option value="existing">Existing target</option>
-              <option value="custom">Custom (e.g. local test container)</option>
-            </select>
-          </div>
-          <div
-            v-if="!restoreCtx.isReconnect && restoreCtx.mode === 'existing'"
-            class="form-control mb-2"
-          >
-            <label class="label"><span class="label-text">Target</span></label>
-            <select
-              v-model="restoreCtx.existingTargetId"
-              class="select select-bordered"
-            >
-              <option v-for="t in targets" :key="t.id" :value="t.id">
-                {{ t.label || t.id }} ({{ t.sshHost }})
-              </option>
-            </select>
-          </div>
-          <div
-            v-if="!restoreCtx.isReconnect && restoreCtx.mode === 'custom'"
-            class="grid grid-cols-2 gap-2 mb-2"
-          >
-            <div class="form-control">
-              <label class="label"
-                ><span class="label-text">SSH Host</span></label
-              ><input
-                v-model="restoreCtx.custom.sshHost"
-                class="input input-bordered input-sm"
-                placeholder="127.0.0.1"
-              />
-            </div>
-            <div class="form-control">
-              <label class="label"
-                ><span class="label-text">SSH User</span></label
-              ><input
-                v-model="restoreCtx.custom.sshUser"
-                class="input input-bordered input-sm"
-                placeholder="jarancibia"
-              />
-            </div>
-            <div class="form-control col-span-2">
-              <label class="label"
-                ><span class="label-text">Container ID / Name</span></label
-              ><input
-                v-model="restoreCtx.custom.containerId"
-                class="input input-bordered input-sm font-mono"
-                placeholder="mongo-restore-test"
-              />
-            </div>
-            <div class="form-control">
-              <label class="label"
-                ><span class="label-text">Mongo User</span></label
-              ><input
-                v-model="restoreCtx.custom.mongoUser"
-                class="input input-bordered input-sm"
-                placeholder="root"
-              />
-            </div>
-            <div class="form-control">
-              <label class="label"
-                ><span class="label-text">Mongo Password</span></label
-              ><input
-                v-model="restoreCtx.custom.mongoPassword"
-                class="input input-bordered input-sm"
-                placeholder="testpass"
-              />
-            </div>
-            <div class="form-control">
-              <label class="label"
-                ><span class="label-text">Auth DB</span></label
-              ><input
-                v-model="restoreCtx.custom.mongoAuthDb"
-                class="input input-bordered input-sm"
-                placeholder="admin"
-              />
-            </div>
-          </div>
-
-          <div v-if="!restoreCtx.isReconnect" class="form-control mb-2">
-            <label class="label cursor-pointer">
-              <span class="label-text"
-                >Protect admin database (exclude from restore)</span
-              >
-              <input
-                type="checkbox"
-                v-model="restoreCtx.protectAdminDb"
-                class="checkbox checkbox-sm ml-2"
-              />
-            </label>
-            <label class="label">
-              <span class="label-text-alt"
-                >When checked, prevents overwriting users and roles in the admin
-                database</span
-              >
-            </label>
-          </div>
-
-          <!-- Reconnect mode: Show readonly target details -->
-          <div
-            v-if="restoreCtx.isReconnect && restoreCtx.reconnectTarget"
-            class="bg-base-200 p-3 rounded-lg mb-2"
-          >
-            <label class="label"
-              ><span class="label-text font-semibold"
-                >Restore Target (Reconnect Mode)</span
-              ></label
-            >
-            <div class="grid grid-cols-2 gap-2 text-sm">
-              <div>
-                <span class="font-semibold">SSH Host:</span> {{
-                restoreCtx.reconnectTarget.sshHost }}
-              </div>
-              <div>
-                <span class="font-semibold">SSH User:</span> {{
-                restoreCtx.reconnectTarget.sshUser }}
-              </div>
-              <div class="col-span-2">
-                <span class="font-semibold">Container:</span>
-                <code class="text-xs"
-                  >{{ restoreCtx.reconnectTarget.containerId }}</code
-                >
-              </div>
-              <div>
-                <span class="font-semibold">Mongo User:</span> {{
-                restoreCtx.reconnectTarget.mongoUser }}
-              </div>
-              <div>
-                <span class="font-semibold">Auth DB:</span> {{
-                restoreCtx.reconnectTarget.mongoAuthDb }}
-              </div>
-            </div>
-          </div>
-          <div v-if="restoreCtx.log.length" class="mt-3">
-            <p class="text-xs font-semibold mb-1">Progress</p>
-            <textarea
-              ref="progressTextarea"
-              readonly
-              class="textarea textarea-bordered font-mono text-xs w-full h-36 bg-base-300"
-              :value="restoreCtx.log.join('\n')"
-            ></textarea>
-          </div>
-          <div
-            v-if="restoreCtx.done"
-            class="alert mt-2"
-            :class="restoreCtx.error ? 'alert-error' : 'alert-success'"
-          >
-            <span
-              >{{ restoreCtx.error ? '✗ ' + restoreCtx.error : '✓ Restore
-              completed successfully' }}</span
-            >
-          </div>
-          <div class="modal-action mt-3">
-            <button class="btn btn-ghost btn-sm" @click="closeRestoreModal">
-              Close
-            </button>
-            <button
-              v-if="!restoreCtx.isReconnect"
-              class="btn btn-info btn-sm"
-              :disabled="restoreCtx.running || restoreCtx.done"
-              @click="runRestore"
-            >
-              <span
-                v-if="restoreCtx.running"
-                class="loading loading-spinner loading-xs"
-              ></span>
-              {{ restoreCtx.running ? 'Restoring…' : 'Start Restore' }}
-            </button>
-          </div>
-        </div>
-        <form method="dialog" class="modal-backdrop">
-          <button>close</button>
-        </form>
-      </dialog>
-
-      <!-- TARGET MODAL -->
-      <dialog id="target-modal" class="modal">
-        <div class="modal-box w-11/12 max-w-2xl">
-          <h3 class="font-bold text-lg mb-4">
-            {{ editTarget.id ? 'Edit Target' : 'New Backup Target' }}
-          </h3>
-          <form @submit.prevent="saveTarget">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div class="form-control">
-                <label class="label"
-                  ><span class="label-text">Label</span></label
-                >
-                <input
-                  v-model="editTarget.label"
-                  type="text"
-                  class="input input-bordered"
-                  placeholder="VPS2 MongoDB"
-                />
-              </div>
-              <div class="form-control">
-                <label class="label"
-                  ><span class="label-text">SSH Host *</span></label
-                >
-                <input
-                  v-model="editTarget.sshHost"
-                  type="text"
-                  class="input input-bordered"
-                  placeholder="188.245.71.48"
-                  required
-                />
-              </div>
-              <div class="form-control">
-                <label class="label"
-                  ><span class="label-text">SSH User *</span></label
-                >
-                <input
-                  v-model="editTarget.sshUser"
-                  type="text"
-                  class="input input-bordered"
-                  placeholder="root"
-                  required
-                />
-              </div>
-              <div class="form-control md:col-span-2">
-                <label class="label"
-                  ><span class="label-text">Container ID *</span></label
-                >
-                <input
-                  v-model="editTarget.containerId"
-                  type="text"
-                  class="input input-bordered font-mono text-sm"
-                  placeholder="dkg4w404ooc0w0gs48sss0k4-214821316514"
-                  required
-                />
-              </div>
-              <div class="form-control">
-                <label class="label"
-                  ><span class="label-text">Mongo User</span></label
-                >
-                <input
-                  v-model="editTarget.mongoUser"
-                  type="text"
-                  class="input input-bordered"
-                  placeholder="admin"
-                />
-              </div>
-              <div class="form-control">
-                <label class="label"
-                  ><span class="label-text">Mongo Password</span></label
-                >
-                <input
-                  v-model="editTarget.mongoPassword"
-                  type="password"
-                  class="input input-bordered"
-                  placeholder="••••••••"
-                />
-              </div>
-              <div class="form-control">
-                <label class="label"
-                  ><span class="label-text">Auth DB</span></label
-                >
-                <input
-                  v-model="editTarget.mongoAuthDb"
-                  type="text"
-                  class="input input-bordered"
-                  placeholder="admin"
-                />
-              </div>
-              <div class="form-control md:col-span-2">
-                <label class="label"
-                  ><span class="label-text">Backup Schedule</span></label
-                >
-
-                <!-- Schedule Type -->
-                <div class="mb-3">
-                  <select
-                    v-model="cronHelper.type"
-                    @change="updateCronExpression"
-                    class="select select-bordered select-sm"
-                  >
-                    <option value="daily">Daily</option>
-                    <option value="weekly">Weekly</option>
-                    <option value="monthly">Monthly</option>
-                    <option value="custom">Custom (Advanced)</option>
-                  </select>
-                </div>
-
-                <!-- Daily Schedule -->
-                <div
-                  v-if="cronHelper.type === 'daily'"
-                  class="flex items-center gap-3 mb-3"
-                >
-                  <span class="text-sm">at</span>
-                  <select
-                    v-model="cronHelper.hour"
-                    @change="updateCronExpression"
-                    class="select select-bordered select-sm w-20"
-                  >
-                    <option v-for="h in 24" :value="h-1">
-                      {{ String(h-1).padStart(2, '0') }}:00
-                    </option>
-                  </select>
-                  <span class="text-sm text-base-content/60">(24h format)</span>
-                </div>
-
-                <!-- Weekly Schedule -->
-                <div v-if="cronHelper.type === 'weekly'" class="space-y-3 mb-3">
-                  <div class="flex items-center gap-3">
-                    <span class="text-sm">on</span>
-                    <select
-                      v-model="cronHelper.day"
-                      @change="updateCronExpression"
-                      class="select select-bordered select-sm"
-                    >
-                      <option value="0">Sunday</option>
-                      <option value="1">Monday</option>
-                      <option value="2">Tuesday</option>
-                      <option value="3">Wednesday</option>
-                      <option value="4">Thursday</option>
-                      <option value="5">Friday</option>
-                      <option value="6">Saturday</option>
-                    </select>
-                    <span class="text-sm">at</span>
-                    <select
-                      v-model="cronHelper.hour"
-                      @change="updateCronExpression"
-                      class="select select-bordered select-sm w-20"
-                    >
-                      <option v-for="h in 24" :value="h-1">
-                        {{ String(h-1).padStart(2, '0') }}:00
-                      </option>
-                    </select>
-                  </div>
-                </div>
-
-                <!-- Monthly Schedule -->
-                <div
-                  v-if="cronHelper.type === 'monthly'"
-                  class="flex items-center gap-3 mb-3"
-                >
-                  <span class="text-sm">on day</span>
-                  <select
-                    v-model="cronHelper.dayOfMonth"
-                    @change="updateCronExpression"
-                    class="select select-bordered select-sm w-20"
-                  >
-                    <option v-for="d in 31" :value="d">{{ d }}</option>
-                  </select>
-                  <span class="text-sm">at</span>
-                  <select
-                    v-model="cronHelper.hour"
-                    @change="updateCronExpression"
-                    class="select select-bordered select-sm w-20"
-                  >
-                    <option v-for="h in 24" :value="h-1">
-                      {{ String(h-1).padStart(2, '0') }}:00
-                    </option>
-                  </select>
-                </div>
-
-                <!-- Custom Cron Expression -->
-                <div v-if="cronHelper.type === 'custom'" class="mb-3">
-                  <input
-                    v-model="editTarget.cron"
-                    type="text"
-                    class="input input-bordered font-mono text-sm"
-                    placeholder="0 2 * * *"
-                  />
-                  <label class="label">
-                    <span class="label-text-alt"
-                      >Use standard cron format: minute hour day month
-                      weekday</span
-                    >
-                  </label>
-                </div>
-
-                <!-- Cron Expression Preview -->
-                <div
-                  v-if="cronHelper.type !== 'custom'"
-                  class="bg-base-200 p-3 rounded-lg"
-                >
-                  <div class="text-xs font-mono">{{ editTarget.cron }}</div>
-                  <div class="text-xs text-base-content/60 mt-1">
-                    {{ cronHelper.description }}
-                  </div>
-                </div>
-              </div>
-              <div class="form-control">
-                <label class="label"
-                  ><span class="label-text">Retention (# backups)</span></label
-                >
-                <input
-                  v-model.number="editTarget.retentionCount"
-                  type="number"
-                  min="1"
-                  max="100"
-                  class="input input-bordered"
-                  placeholder="7"
-                />
-              </div>
-              <div class="form-control flex-row items-center gap-3 pt-6">
-                <input
-                  v-model="editTarget.enabled"
-                  type="checkbox"
-                  class="toggle toggle-success"
-                />
-                <span class="label-text">Enabled</span>
-              </div>
-            </div>
-            <div class="modal-action mt-4">
-              <button
-                type="button"
-                class="btn btn-ghost"
-                @click="closeTargetModal"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                class="btn btn-primary"
-                :disabled="targetSaving"
-              >
-                <span
-                  v-if="targetSaving"
-                  class="loading loading-spinner loading-xs"
-                ></span>
-                Save Target
-              </button>
-            </div>
-            <div v-if="targetError" class="alert alert-error mt-2">
-              <span>{{ targetError }}</span>
-            </div>
-          </form>
-        </div>
-        <form method="dialog" class="modal-backdrop">
-          <button>close</button>
-        </form>
-      </dialog>
-
-      <!-- TOAST -->
-      <div class="toast toast-end z-50" v-if="toast">
-        <div class="alert" :class="toast.ok ? 'alert-success' : 'alert-error'">
-          <span>{{ toast.text }}</span>
         </div>
       </div>
     </div>
 
-    <script src="/app.js"></script>
-  </body>
+    <!-- TARGETS TAB -->
+    <div v-if="tab === 'targets'">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-2xl font-bold">Backup Targets</h2>
+        <button class="btn btn-primary btn-sm" @click="openTargetModal(null)">+ Add Target</button>
+      </div>
+
+      <div v-if="targetsLoading" class="flex justify-center py-12">
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+      </div>
+
+      <div v-else-if="targets.length === 0" class="alert alert-info">
+        <span>No targets yet. Click <strong>+ Add Target</strong> to create one.</span>
+      </div>
+
+      <div v-else class="grid gap-4 md:grid-cols-2">
+        <div v-for="t in targets" :key="t.id" class="card bg-base-100 shadow">
+          <div class="card-body">
+            <h3 class="card-title">{{ t.label || t.id }}</h3>
+            <p class="text-sm text-base-content/60">{{ t.sshUser }}@{{ t.sshHost }}</p>
+            <p class="text-xs text-base-content/50">Container: {{ t.containerId }}</p>
+            <p class="text-xs text-base-content/50">Cron: <code>{{ t.cron || '0 2 * * *' }}</code></p>
+            <div class="flex gap-2 items-center mt-1">
+              <span class="badge" :class="t.enabled ? 'badge-success' : 'badge-ghost'">{{ t.enabled ? 'Enabled' : 'Disabled' }}</span>
+            </div>
+            <div class="card-actions justify-end mt-2">
+              <button class="btn btn-sm btn-outline" @click="openTargetModal(t)">Edit</button>
+              <button class="btn btn-sm btn-error btn-outline" @click="deleteTarget(t.id)">Delete</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SETTINGS TAB -->
+    <div v-if="tab === 'settings'">
+      <h2 class="text-2xl font-bold mb-4">Settings</h2>
+      <div class="card bg-base-100 shadow max-w-2xl">
+        <div class="card-body">
+          <h3 class="card-title">SSH Private Key</h3>
+          <p class="text-sm text-base-content/60 mb-2">
+            Paste the content of your SSH private key (e.g. <code>~/.ssh/id_rsa</code>). It will be stored encrypted in the database.
+          </p>
+          <div v-if="sshKeyStatus !== null" class="mb-2">
+            <span class="badge" :class="sshKeyStatus ? 'badge-success' : 'badge-warning'">
+              {{ sshKeyStatus ? '✓ SSH key is configured' : '⚠ No SSH key configured' }}
+            </span>
+          </div>
+          <textarea
+            v-model="sshKeyInput"
+            class="textarea textarea-bordered font-mono text-xs h-48 w-full"
+            placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"
+          ></textarea>
+          <div class="card-actions justify-end mt-2">
+            <button class="btn btn-primary" :disabled="!sshKeyInput.trim() || sshKeySaving" @click="saveSshKey">
+              <span v-if="sshKeySaving" class="loading loading-spinner loading-xs"></span>
+              Save Key
+            </button>
+          </div>
+          <div v-if="sshKeyMsg" class="alert mt-2" :class="sshKeyMsg.ok ? 'alert-success' : 'alert-error'">
+            <span>{{ sshKeyMsg.text }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- AUDIT TAB -->
+    <div v-if="tab === 'audit'">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-2xl font-bold">Audit Log</h2>
+        <button class="btn btn-primary btn-sm" @click="loadAuditEvents">
+          <span v-if="auditLoading" class="loading loading-spinner loading-xs"></span>
+          Refresh
+        </button>
+      </div>
+
+      <!-- Filters -->
+      <div class="card bg-base-100 shadow mb-4">
+        <div class="card-body p-4">
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
+            <div class="form-control">
+              <label class="label"><span class="label-text">Action</span></label>
+              <select v-model="auditFilters.action" class="select select-bordered select-sm">
+                <option value="">All Actions</option>
+                <option value="restore.trigger">Restore Trigger</option>
+                <option value="restore.complete">Restore Complete</option>
+                <option value="restore.error">Restore Error</option>
+              </select>
+            </div>
+            <div class="form-control">
+              <label class="label"><span class="label-text">Outcome</span></label>
+              <select v-model="auditFilters.outcome" class="select select-bordered select-sm">
+                <option value="">All</option>
+                <option value="success">Success</option>
+                <option value="failure">Failure</option>
+              </select>
+            </div>
+            <div class="form-control">
+              <label class="label"><span class="label-text">Date Range</span></label>
+              <select v-model="auditFilters.dateRange" class="select select-bordered select-sm">
+                <option value="">All Time</option>
+                <option value="24h">Last 24 Hours</option>
+                <option value="7d">Last 7 Days</option>
+              </select>
+            </div>
+            <div class="form-control">
+              <label class="label">&nbsp;</label>
+              <button class="btn btn-outline btn-sm" @click="applyAuditFilters">Apply Filters</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Audit Events Table -->
+      <div class="card bg-base-100 shadow">
+        <div class="card-body p-0">
+          <div class="overflow-x-auto">
+            <table class="table table-sm">
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Actor</th>
+                  <th>Action</th>
+                  <th>Entity</th>
+                  <th>Outcome</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="event in auditEvents" :key="event.id">
+                  <td class="text-xs">{{ formatDate(event.at) }}</td>
+                  <td class="text-xs">
+                    <span class="badge badge-outline">{{ event.actorType }}</span>
+                    <span v-if="event.actorUserId" class="text-xs ml-1">{{ event.actorUserId?.email || event.actorId }}</span>
+                  </td>
+                  <td class="text-xs font-mono">{{ event.action }}</td>
+                  <td class="text-xs">{{ event.entityType || '-' }}</td>
+                  <td>
+                    <span class="badge badge-sm" :class="event.outcome === 'success' ? 'badge-success' : 'badge-error'">
+                      {{ event.outcome }}
+                    </span>
+                  </td>
+                  <td class="text-xs">
+                    <div v-if="event.meta?.jobId" class="font-mono">Job: {{ event.meta.jobId }}</div>
+                    <div v-if="event.meta?.filename">File: {{ event.meta.filename }}</div>
+                    <div v-if="event.meta?.sourceTargetId">Target: {{ event.meta.sourceTargetId }}</div>
+                    <div v-if="event.error" class="text-error">{{ event.error }}</div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div v-if="auditLoading" class="p-4 text-center">
+              <span class="loading loading-spinner"></span>
+            </div>
+            <div v-if="!auditLoading && auditEvents.length === 0" class="p-4 text-center text-base-content/60">
+              No audit events found
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- RESTORE MODAL -->
+  <dialog id="restore-modal" class="modal">
+    <div class="modal-box w-11/12 max-w-2xl">
+      <h3 class="font-bold text-lg mb-1">
+        {{ restoreCtx.isReconnect ? 'Reconnect to Restore' : 'Restore Backup' }}
+      </h3>
+      <p class="text-sm text-base-content/60 mb-3">File: <code class="text-xs">{{ restoreCtx.filename }}</code></p>
+      <div v-if="!restoreCtx.isReconnect" class="form-control mb-2">
+        <label class="label"><span class="label-text font-semibold">Restore Target</span></label>
+        <select v-model="restoreCtx.mode" class="select select-bordered">
+          <option value="existing">Existing target</option>
+          <option value="custom">Custom (e.g. local test container)</option>
+        </select>
+      </div>
+      <div v-if="!restoreCtx.isReconnect && restoreCtx.mode === 'existing'" class="form-control mb-2">
+        <label class="label"><span class="label-text">Target</span></label>
+        <select v-model="restoreCtx.existingTargetId" class="select select-bordered">
+          <option v-for="t in targets" :key="t.id" :value="t.id">{{ t.label || t.id }} ({{ t.sshHost }})</option>
+        </select>
+      </div>
+      <div v-if="!restoreCtx.isReconnect && restoreCtx.mode === 'custom'" class="grid grid-cols-2 gap-2 mb-2">
+        <div class="form-control"><label class="label"><span class="label-text">SSH Host</span></label><input v-model="restoreCtx.custom.sshHost" class="input input-bordered input-sm" placeholder="127.0.0.1" /></div>
+        <div class="form-control"><label class="label"><span class="label-text">SSH User</span></label><input v-model="restoreCtx.custom.sshUser" class="input input-bordered input-sm" placeholder="jarancibia" /></div>
+        <div class="form-control col-span-2"><label class="label"><span class="label-text">Container ID / Name</span></label><input v-model="restoreCtx.custom.containerId" class="input input-bordered input-sm font-mono" placeholder="mongo-restore-test" /></div>
+        <div class="form-control"><label class="label"><span class="label-text">Mongo User</span></label><input v-model="restoreCtx.custom.mongoUser" class="input input-bordered input-sm" placeholder="root" /></div>
+        <div class="form-control"><label class="label"><span class="label-text">Mongo Password</span></label><input v-model="restoreCtx.custom.mongoPassword" class="input input-bordered input-sm" placeholder="testpass" /></div>
+        <div class="form-control"><label class="label"><span class="label-text">Auth DB</span></label><input v-model="restoreCtx.custom.mongoAuthDb" class="input input-bordered input-sm" placeholder="admin" /></div>
+      </div>
+      
+      <div v-if="!restoreCtx.isReconnect" class="form-control mb-2">
+        <label class="label cursor-pointer">
+          <span class="label-text">Protect admin database (exclude from restore)</span>
+          <input type="checkbox" v-model="restoreCtx.protectAdminDb" class="checkbox checkbox-sm ml-2" />
+        </label>
+        <label class="label">
+          <span class="label-text-alt">When checked, prevents overwriting users and roles in the admin database</span>
+        </label>
+      </div>
+      
+      <!-- Reconnect mode: Show readonly target details -->
+      <div v-if="restoreCtx.isReconnect && restoreCtx.reconnectTarget" class="bg-base-200 p-3 rounded-lg mb-2">
+        <label class="label"><span class="label-text font-semibold">Restore Target (Reconnect Mode)</span></label>
+        <div class="grid grid-cols-2 gap-2 text-sm">
+          <div><span class="font-semibold">SSH Host:</span> {{ restoreCtx.reconnectTarget.sshHost }}</div>
+          <div><span class="font-semibold">SSH User:</span> {{ restoreCtx.reconnectTarget.sshUser }}</div>
+          <div class="col-span-2"><span class="font-semibold">Container:</span> <code class="text-xs">{{ restoreCtx.reconnectTarget.containerId }}</code></div>
+          <div><span class="font-semibold">Mongo User:</span> {{ restoreCtx.reconnectTarget.mongoUser }}</div>
+          <div><span class="font-semibold">Auth DB:</span> {{ restoreCtx.reconnectTarget.mongoAuthDb }}</div>
+        </div>
+      </div>
+      <div v-if="restoreCtx.log.length" class="mt-3">
+        <p class="text-xs font-semibold mb-1">Progress</p>
+        <textarea ref="progressTextarea" readonly class="textarea textarea-bordered font-mono text-xs w-full h-36 bg-base-300" :value="restoreCtx.log.join('\n')"></textarea>
+      </div>
+      <div v-if="restoreCtx.done" class="alert mt-2" :class="restoreCtx.error ? 'alert-error' : 'alert-success'">
+        <span>{{ restoreCtx.error ? '✗ ' + restoreCtx.error : '✓ Restore completed successfully' }}</span>
+      </div>
+      <div class="modal-action mt-3">
+        <button class="btn btn-ghost btn-sm" @click="closeRestoreModal">Close</button>
+        <button v-if="!restoreCtx.isReconnect" class="btn btn-info btn-sm" :disabled="restoreCtx.running || restoreCtx.done" @click="runRestore">
+          <span v-if="restoreCtx.running" class="loading loading-spinner loading-xs"></span>
+          {{ restoreCtx.running ? 'Restoring…' : 'Start Restore' }}
+        </button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
+  <!-- TARGET MODAL -->
+  <dialog id="target-modal" class="modal">
+    <div class="modal-box w-11/12 max-w-2xl">
+      <h3 class="font-bold text-lg mb-4">{{ editTarget.id ? 'Edit Target' : 'New Backup Target' }}</h3>
+      <form @submit.prevent="saveTarget">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div class="form-control">
+            <label class="label"><span class="label-text">Label</span></label>
+            <input v-model="editTarget.label" type="text" class="input input-bordered" placeholder="VPS2 MongoDB" />
+          </div>
+          <div class="form-control">
+            <label class="label"><span class="label-text">SSH Host *</span></label>
+            <input v-model="editTarget.sshHost" type="text" class="input input-bordered" placeholder="188.245.71.48" required />
+          </div>
+          <div class="form-control">
+            <label class="label"><span class="label-text">SSH User *</span></label>
+            <input v-model="editTarget.sshUser" type="text" class="input input-bordered" placeholder="root" required />
+          </div>
+          <div class="form-control md:col-span-2">
+            <label class="label"><span class="label-text">Container ID *</span></label>
+            <input v-model="editTarget.containerId" type="text" class="input input-bordered font-mono text-sm" placeholder="dkg4w404ooc0w0gs48sss0k4-214821316514" required />
+          </div>
+          <div class="form-control">
+            <label class="label"><span class="label-text">Mongo User</span></label>
+            <input v-model="editTarget.mongoUser" type="text" class="input input-bordered" placeholder="admin" />
+          </div>
+          <div class="form-control">
+            <label class="label"><span class="label-text">Mongo Password</span></label>
+            <input v-model="editTarget.mongoPassword" type="password" class="input input-bordered" placeholder="••••••••" />
+          </div>
+          <div class="form-control">
+            <label class="label"><span class="label-text">Auth DB</span></label>
+            <input v-model="editTarget.mongoAuthDb" type="text" class="input input-bordered" placeholder="admin" />
+          </div>
+          <div class="form-control md:col-span-2">
+            <label class="label"><span class="label-text">Backup Schedule</span></label>
+            
+            <!-- Schedule Type -->
+            <div class="mb-3">
+              <select v-model="cronHelper.type" @change="updateCronExpression" class="select select-bordered select-sm">
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="custom">Custom (Advanced)</option>
+              </select>
+            </div>
+
+            <!-- Daily Schedule -->
+            <div v-if="cronHelper.type === 'daily'" class="flex items-center gap-3 mb-3">
+              <span class="text-sm">at</span>
+              <select v-model="cronHelper.hour" @change="updateCronExpression" class="select select-bordered select-sm w-20">
+                <option v-for="h in 24" :value="h-1">{{ String(h-1).padStart(2, '0') }}:00</option>
+              </select>
+              <span class="text-sm text-base-content/60">(24h format)</span>
+            </div>
+
+            <!-- Weekly Schedule -->
+            <div v-if="cronHelper.type === 'weekly'" class="space-y-3 mb-3">
+              <div class="flex items-center gap-3">
+                <span class="text-sm">on</span>
+                <select v-model="cronHelper.day" @change="updateCronExpression" class="select select-bordered select-sm">
+                  <option value="0">Sunday</option>
+                  <option value="1">Monday</option>
+                  <option value="2">Tuesday</option>
+                  <option value="3">Wednesday</option>
+                  <option value="4">Thursday</option>
+                  <option value="5">Friday</option>
+                  <option value="6">Saturday</option>
+                </select>
+                <span class="text-sm">at</span>
+                <select v-model="cronHelper.hour" @change="updateCronExpression" class="select select-bordered select-sm w-20">
+                  <option v-for="h in 24" :value="h-1">{{ String(h-1).padStart(2, '0') }}:00</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Monthly Schedule -->
+            <div v-if="cronHelper.type === 'monthly'" class="flex items-center gap-3 mb-3">
+              <span class="text-sm">on day</span>
+              <select v-model="cronHelper.dayOfMonth" @change="updateCronExpression" class="select select-bordered select-sm w-20">
+                <option v-for="d in 31" :value="d">{{ d }}</option>
+              </select>
+              <span class="text-sm">at</span>
+              <select v-model="cronHelper.hour" @change="updateCronExpression" class="select select-bordered select-sm w-20">
+                <option v-for="h in 24" :value="h-1">{{ String(h-1).padStart(2, '0') }}:00</option>
+              </select>
+            </div>
+
+            <!-- Custom Cron Expression -->
+            <div v-if="cronHelper.type === 'custom'" class="mb-3">
+              <input v-model="editTarget.cron" type="text" class="input input-bordered font-mono text-sm" placeholder="0 2 * * *" />
+              <label class="label">
+                <span class="label-text-alt">Use standard cron format: minute hour day month weekday</span>
+              </label>
+            </div>
+
+            <!-- Cron Expression Preview -->
+            <div v-if="cronHelper.type !== 'custom'" class="bg-base-200 p-3 rounded-lg">
+              <div class="text-xs font-mono">{{ editTarget.cron }}</div>
+              <div class="text-xs text-base-content/60 mt-1">{{ cronHelper.description }}</div>
+            </div>
+          </div>
+          <div class="form-control">
+            <label class="label"><span class="label-text">Retention (# backups)</span></label>
+            <input v-model.number="editTarget.retentionCount" type="number" min="1" max="100" class="input input-bordered" placeholder="7" />
+          </div>
+          <div class="form-control flex-row items-center gap-3 pt-6">
+            <input v-model="editTarget.enabled" type="checkbox" class="toggle toggle-success" />
+            <span class="label-text">Enabled</span>
+          </div>
+        </div>
+        <div class="modal-action mt-4">
+          <button type="button" class="btn btn-ghost" @click="closeTargetModal">Cancel</button>
+          <button type="submit" class="btn btn-primary" :disabled="targetSaving">
+            <span v-if="targetSaving" class="loading loading-spinner loading-xs"></span>
+            Save Target
+          </button>
+        </div>
+        <div v-if="targetError" class="alert alert-error mt-2"><span>{{ targetError }}</span></div>
+      </form>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
+  <!-- TOAST -->
+  <div class="toast toast-end z-50" v-if="toast">
+    <div class="alert" :class="toast.ok ? 'alert-success' : 'alert-error'">
+      <span>{{ toast.text }}</span>
+    </div>
+  </div>
+
+</div>
+
+<script src="/app.js"></script>
+</body>
 </html>
