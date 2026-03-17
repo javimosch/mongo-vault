@@ -1,7 +1,12 @@
 {
-  "name": "coolify-mongo-backup",
+  "name": "mongo-vault",
   "version": "1.0.0",
-  "description": "Scheduled remote MongoDB backup manager via SSH",
+  "description": "MongoVault (MV): Scheduled remote MongoDB backup manager via SSH",
+  "author": "Javier Leandro Arancibia <arancibiajav@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:javimosch/mongo-vault.git"
+  },
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
