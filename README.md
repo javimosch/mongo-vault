@@ -1,44 +1,72 @@
-# MongoVault (MV)
+# MongoVault
 
-MongoVault is an easy-to-use solution for backing up MongoDB containers running on a remote host via SSH. While it was initially developed for Coolify hosts, it is not strictly required.
+> Self-hosted MongoDB backup manager with SSH key auth, REST API, cron scheduling, and retention management.
+
+![MongoVault demo](docs/mv-demo.gif)
+
+Backs up MongoDB containers on remote hosts via SSH. Runs headlessly behind a REST API — configure targets, trigger backups, monitor disk usage.
 
 ## Features
-- Scheduled remote MongoDB backups.
-- Simple dashboard for monitoring backup status and disk usage.
-- Database size estimation from target host.
-- Host disk usage metrics.
 
-## Getting Started
-### Prerequisites
-- Node.js installed on the host.
-- SSH access to the remote MongoDB server.
-- Remote MongoDB container name or container ID.
+- **SSH key auth** — no agent or sidecar needed on target hosts
+- **REST API** — all operations via JSON endpoints
+- **Cron scheduling** — per-target cron expressions
+- **Retention management** — keeps N newest backups, prunes the rest
+- **Disk metrics** — host disk usage and backup size tracking
+- **Multi-target** — one server, many MongoDB instances
+- **Zero-downtime** — uses `mongodump --archive --gzip` via SSH, no locks
 
-### Installation
-1. Clone the repository: `git clone git@github.com:javimosch/mongo-vault.git`
-2. Install dependencies: `npm install`
-3. Configure environment variables (if needed).
-4. Run the application: `npm start`
+## Quick Start
+
+```bash
+git clone git@github.com:javimosch/mongo-vault.git
+cd mongo-vault
+npm install
+npm start
+```
+
+Then create your first backup target via the API:
+
+```bash
+# Set SSH key (used for all targets)
+curl -X POST http://localhost:3000/api/settings/ssh-key \
+  -H 'Content-Type: application/json' \
+  -d '{"privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----
+..."}'
+
+# Add a backup target
+curl -X POST http://localhost:3000/api/targets \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "label": "production",
+    "sshHost": "10.0.0.1",
+    "sshUser": "root",
+    "containerId": "mongo-shared",
+    "cron": "0 2 * * *",
+    "retentionCount": 30,
+    "enabled": true
+  }'
+
+# Trigger an immediate backup
+curl -X POST http://localhost:3000/api/backups/trigger/<target-id>
+```
+
+## API
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/backups` | GET | List targets and backup history |
+| `/api/backups/trigger/:targetId` | POST | Run backup now |
+| `/api/backups/metrics` | GET | Host disk and backup size metrics |
+| `/api/settings/ssh-key` | GET | Check SSH key status |
+| `/api/settings/ssh-key` | POST | Set SSH private key (`{"privateKey": "..."}`) |
+| `/api/targets` | POST | Create or update a backup target |
+| `/api/backups/download/:targetId/:filename` | GET | Download a backup archive |
+
+## Deployment
+
+See [docs/deploy.md](docs/deploy.md) for production setup behind a reverse proxy, systemd service, and security hardening.
 
 ## License
-MIT License
 
-Copyright (c) 2026 Javier Leandro Arancibia
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+MIT — Javier Leandro Arancibia

@@ -1,0 +1,12 @@
+{"version": 2, "width": 80, "height": 24, "timestamp": 1782768531, "env": {"SHELL": "/usr/bin/zsh", "TERM": "screen-256color"}}
+[0.006173, "o", "\u001b[H\u001b[J"]
+[0.006522, "o", "MongoVault -- Self-hosted MongoDB backup manager\r\ngithub.com/javimosch/mongo-vault\r\n\r\n"]
+[0.807307, "o", "$ curl -s http://100.86.93.41:3011/api/backups\r\n"]
+[0.846248, "o", "  [VPS MONGO] root@100.108.74.86:mongo-shared\r\n  Status: running | Latest: mongo-2026-06-29T21-27-25.gz (38 MB)\r\n  Backups: 6 of 30 retention\r\n"]
+[2.351007, "o", "\r\n$ curl -s http://100.86.93.41:3011/api/backups/metrics\r\n"]
+[8.023728, "o", "  Disk: 116 GB total, 38 GB free\r\n  Backups: 0.9 GB on disk\r\n"]
+[9.229061, "o", "\r\n$ curl -s -X POST http://100.86.93.41:3011/api/backups/trigger/0af76992\r\n"]
+[9.247913, "o", "Traceback (most recent call last):\r\n  File \"<string>\", line 2, in <module>\r\nKeyError: 'message'\r\n"]
+[10.451878, "o", "\r\n$ curl -s http://100.86.93.41:3011/api/settings/ssh-key\r\n"]
+[10.474417, "o", "  SSH key: configured\r\n"]
+[11.279575, "o", "\r\nRESTful API -- SSH key auth -- Cron -- Retention\r\ngithub.com/javimosch/mongo-vault\r\n"]
