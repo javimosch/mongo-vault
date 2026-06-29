@@ -1,54 +1,40 @@
 #!/bin/bash
-# MongoVault demo - REST API backup management
+# MongoVault demo - clean representative output, no real infra data
 export PS1='$ '
 clear
-
-API="http://100.86.93.41:3011"
 
 echo "MongoVault -- Self-hosted MongoDB backup manager"
 echo "github.com/javimosch/mongo-vault"
 echo ""
 sleep 0.8
 
-echo "$ curl -s $API/api/backups"
-curl -s $API/api/backups 2>/dev/null | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-for item in data.get('data', []):
-    t = item['target']
-    newest = item['backups'][0]
-    print('  [{}] root@{}:{}'.format(t['label'], t['sshHost'], t['containerId']))
-    print('  Status: {} | Latest: {} ({:.0f} MB)'.format(item['status']['status'], newest['filename'], newest['size']/1024/1024))
-    print('  Backups: {} of {} retention'.format(len(item['backups']), t['retentionCount']))
-"
+echo '$ curl -s http://localhost:3000/api/backups'
+echo '  [production] root@10.0.0.1:mongo-shared'
+echo '  Status: success | Latest: mongo-2026-06-29T21-00-00.gz (156 MB)'
+echo '  Backups: 14 of 30 retention'
+echo '  [staging] root@10.0.0.2:mongo-shared'
+echo '  Status: success | Latest: mongo-2026-06-29T21-05-00.gz (23 MB)'
+echo '  Backups: 30 of 30 retention'
+echo ''
 sleep 1.5
 
-echo ""
-echo "$ curl -s $API/api/backups/metrics"
-curl -s $API/api/backups/metrics 2>/dev/null | python3 -c "
-import sys, json
-m = json.load(sys.stdin)['host']
-free = m['freeDisk'] / 1024**3
-bkp = m['backupsSize'] / 1024**3
-print('  Disk: {:.0f} GB total, {:.0f} GB free'.format(m['totalDisk']/1024**3, free))
-print('  Backups: {:.1f} GB on disk'.format(bkp))
-"
+echo '$ curl -s http://localhost:3000/api/backups/metrics'
+echo '  Disk: 250 GB total, 182 GB free (27% used)'
+echo '  Backups: 2.1 GB on disk (2 targets)'
+echo ''
 sleep 1.2
 
-echo ""
-echo "$ curl -s -X POST $API/api/backups/trigger/0af76992"
-curl -s -X POST $API/api/backups/trigger/0af76992 2>/dev/null | python3 -c "
-import sys, json; print('  ' + json.load(sys.stdin)['message'])"
+echo '$ curl -s -X POST http://localhost:3000/api/backups/trigger/abc123'
+echo '  Backup started'
+echo ''
 sleep 1.2
 
-echo ""
-echo "$ curl -s $API/api/settings/ssh-key"
-curl -s $API/api/settings/ssh-key 2>/dev/null | python3 -c "
-import sys, json; print('  SSH key: ' + ('configured' if json.load(sys.stdin).get('hasKey') else 'missing'))"
+echo '$ curl -s http://localhost:3000/api/settings/ssh-key'
+echo '  SSH key: configured (ED25519)'
+echo ''
 sleep 0.8
 
-echo ""
-echo "RESTful API -- SSH key auth -- Cron -- Retention"
-echo "github.com/javimosch/mongo-vault"
+echo 'RESTful API -- SSH key auth -- Cron -- Retention'
+echo 'github.com/javimosch/mongo-vault'
 sleep 1.5
 exit
