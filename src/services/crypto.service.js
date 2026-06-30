@@ -1,73 +1,114 @@
 const crypto = require('crypto');
 
 const ALGORITHM = 'aes-256-gcm';
-const IV_LENGTH = 16;
-const TAG_LENGTH = 16;
 
 /**
- * Derive a 32-byte key from ENCRYPTION_KEY (or fallback to a hash of a hardcoded string).
- * Uses PBKDF2 so the stored encryption key can be any length.
+ * Get the encryption key, supporting both new and legacy env var names.
+ * Priority: ENCRYPTION_KEY > SUPERBACKEND_ENCRYPTION_KEY > SAASBACKEND_ENCRYPTION_KEY
+ *
+ * Compatible with superbackend's key format:
+ * - 64 hex chars → raw 32 bytes
+ * - base64-decoded → 32 bytes
+ * - 32+ char UTF-8 string → sliced to 32 bytes
  */
-function deriveKey() {
-  const secret = process.env.ENCRYPTION_KEY || 'mongo-vault-default-key-change-me-in-production!!';
-  // Use a fixed salt so the derived key is deterministic for a given ENCRYPTION_KEY
-  const salt = Buffer.from('mongo-vault-enc-salt-v1', 'utf8');
-  return crypto.pbkdf2Sync(secret, salt, 10000, 32, 'sha256');
+function getRawKey() {
+  const secret = process.env.ENCRYPTION_KEY
+    || process.env.SUPERBACKEND_ENCRYPTION_KEY
+    || process.env.SAASBACKEND_ENCRYPTION_KEY
+    || 'mongo-vault-default-key-change-me-in-production!!';
+
+  let key;
+  if (/^[A-Fa-f0-9]{64}$/.test(secret)) {
+    key = Buffer.from(secret, 'hex');
+  } else {
+    try {
+      key = Buffer.from(secret, 'base64');
+    } catch {
+      key = null;
+    }
+    if (!key || key.length !== 32) {
+      key = Buffer.from(secret, 'utf8').slice(0, 32);
+    }
+  }
+  return key;
 }
 
 let _cachedKey = null;
 function getKey() {
-  if (!_cachedKey) _cachedKey = deriveKey();
+  if (!_cachedKey) _cachedKey = getRawKey();
   return _cachedKey;
 }
 
 /**
- * Encrypt a plaintext string.
- * Returns: base64( iv + ciphertext + authTag )
+ * Encrypt plaintext → hex( iv:authTag:ciphertext )
+ * This is the mongo-vault native format (cleaner, no base64 padding issues).
  */
 function encrypt(plaintext) {
   if (!plaintext) return plaintext;
   const key = getKey();
-  const iv = crypto.randomBytes(IV_LENGTH);
+  const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
 
-  let encrypted = cipher.update(plaintext, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  const authTag = cipher.getAuthTag();
+  const ciphertext = Buffer.concat([
+    cipher.update(String(plaintext), 'utf8'),
+    cipher.final(),
+  ]);
+  const tag = cipher.getAuthTag();
 
-  // Format: iv:authTag:ciphertext (all hex)
-  return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
+  return `${iv.toString('hex')}:${tag.toString('hex')}:${ciphertext.toString('hex')}`;
 }
 
 /**
- * Decrypt a string previously encrypted with encrypt().
- * Input format: hex( iv:authTag:ciphertext )
- * Returns null if decryption fails (e.g. wrong key, corrupted data).
+ * Decrypt a value that was stored as type='encrypted'.
+ * Tries formats in order:
+ *   1. Superbackend JSON format  → { alg, iv, tag, ciphertext } (base64)
+ *   2. Native hex format         → hex(iv):hex(tag):hex(ciphertext)
  */
 function decrypt(encoded) {
   if (!encoded) return encoded;
-  try {
-    const key = getKey();
-    const parts = encoded.split(':');
-    if (parts.length !== 3) {
-      console.warn('[crypto] Malformed encrypted value (expected 3 parts)');
-      return null;
+
+  // Try superbackend JSON format first
+  if (encoded.startsWith('{')) {
+    try {
+      const payload = JSON.parse(encoded);
+      if (payload.alg === 'aes-256-gcm' && payload.iv && payload.tag && payload.ciphertext) {
+        const key = getKey();
+        const iv = Buffer.from(payload.iv, 'base64');
+        const tag = Buffer.from(payload.tag, 'base64');
+        const ciphertext = Buffer.from(payload.ciphertext, 'base64');
+
+        const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+        decipher.setAuthTag(tag);
+
+        const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+        return plaintext.toString('utf8');
+      }
+    } catch {
+      // Not superbackend JSON — fall through to hex format
     }
-
-    const iv = Buffer.from(parts[0], 'hex');
-    const authTag = Buffer.from(parts[1], 'hex');
-    const encrypted = parts[2];
-
-    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-    decipher.setAuthTag(authTag);
-
-    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-  } catch (err) {
-    console.warn('[crypto] Decryption failed:', err.message);
-    return null;
   }
+
+  // Try native hex format: iv:authTag:ciphertext
+  try {
+    const parts = encoded.split(':');
+    if (parts.length === 3) {
+      const key = getKey();
+      const iv = Buffer.from(parts[0], 'hex');
+      const authTag = Buffer.from(parts[1], 'hex');
+      const ciphertext = Buffer.from(parts[2], 'hex');
+
+      const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+      decipher.setAuthTag(authTag);
+
+      const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+      return plaintext.toString('utf8');
+    }
+  } catch {
+    // Not hex format either
+  }
+
+  console.warn('[crypto] Decryption failed — wrong key or unsupported format');
+  return null;
 }
 
-module.exports = { encrypt, decrypt, deriveKey };
+module.exports = { encrypt, decrypt };
