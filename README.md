@@ -63,19 +63,6 @@ curl -X POST http://localhost:3000/api/backups/trigger/<target-id>
 | `/api/targets` | POST | Create or update a backup target |
 | `/api/backups/download/:targetId/:filename` | GET | Download a backup archive |
 
-## Transition from SuperBackend (existing instances)
-
-If you were running the previous version that depended on `@intranefr/superbackend`, the new standalone version is fully backward compatible.
-
-**No MongoDB changes needed.** The same `globalsettings` collection stores your targets and SSH key. Just:
-
-1. Pull the new code: `git pull origin master`
-2. Remove old dep: `npm uninstall @intranefr/superbackend`
-3. Install new deps: `npm install`
-4. Restart: `npm start`
-
-Your existing targets, SSH key, and backup files are preserved.
-
 ## Deployment
 
 See [docs/deploy.md](docs/deploy.md) for production setup behind a reverse proxy, systemd service, and security hardening.
