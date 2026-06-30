@@ -160,7 +160,7 @@ function _finishJob(jobId, errorMsg, emitter) {
   console.log(`[restore-service] Job ${jobId} status updated to: ${job.status}`);
   // Audit logging for completion
   try {
-    const { createAuditEvent } = require('@intranefr/superbackend/src/services/audit.service');
+    const { createAuditEvent } = require('./audit.service');
     createAuditEvent({
       actorType: 'system',
       actorId: 'restore-service',

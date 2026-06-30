@@ -3,13 +3,10 @@ FROM node:20-alpine
 WORKDIR /app
 
 COPY package*.json ./
-
-# Install build dependencies for native modules (node-pty)
-RUN apk add --no-cache python3 make g++ \
-    && npm ci --omit=dev \
-    && apk del python3 make g++
+RUN npm ci --omit=dev
 
 COPY src ./src
+COPY index.html ./
 
 RUN mkdir -p /app/data
 

@@ -1,5 +1,5 @@
 const restoreService = require('../services/restore.service');
-const { createAuditEvent, getBasicAuthActor } = require('@intranefr/superbackend/src/services/audit.service');
+const { createAuditEvent, getBasicAuthActor } = require('../services/audit.service');
 
 async function triggerRestore(req, res) {
   try {

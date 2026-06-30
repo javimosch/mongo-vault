@@ -7,16 +7,15 @@ services:
       - "3011:3011"
     volumes:
       - ./data:/app/data
-      - ./src:/app/src
     env_file: .env
-    environment:
-      - MONGODB_URI=mongodb://mongo:27017/mongo-vault
-    depends_on:
-      - mongo
     restart: unless-stopped
 
+  # Optional: bundled MongoDB for single-server setups
+  # Remove if pointing to an external MongoDB via MONGODB_URI
   mongo:
-    image: mongo:6.0
+    image: mongo:7
+    profiles:
+      - with-mongo
     ports:
       - "27017:27017"
     volumes:

@@ -1,77 +1,76 @@
-# coolify-mongo-backup – Deploy to vps1
+# MongoVault Deployment
 
-## Prerequisites
-
-- vps1: `ubuntu@100.86.93.41` (Tailscale intranet)
-- vps1 has `docker-compose` (v1) installed
-- `/apps/mongo-vault` directory exists on vps1
-
-## 1. Rsync from localhost
+## Quick Start (local dev)
 
 ```bash
-rsync -avz \
-  --exclude='node_modules' \
-  --exclude='data' \
-  --exclude='.git' \
-  --exclude='ref-saasbackend' \
-  /home/jarancibia/ai/mongo-vault/ \
-  ubuntu@100.86.93.41:/apps/mongo-vault/
+git clone git@github.com:javimosch/mongo-vault.git
+cd mongo-vault
+npm install
+# Start a local MongoDB (for testing)
+docker run -d --name mv-mongo -p 27017:27017 mongo:7
+cp .env.example .env
+npm start
+# Open http://localhost:3011 (login: admin/changeme)
 ```
 
-## 2. Create .env on vps1
+## Production Deployment
 
-SSH into vps1 and create `/apps/mongo-vault/.env`:
+### Option A: Docker Compose (recommended)
 
 ```bash
-ssh ubuntu@100.86.93.41
 cd /apps/mongo-vault
 cp .env.example .env
 # Edit .env with production values:
 #   MONGODB_URI=mongodb://mongo:27017/mongo-vault
-#   ADMIN_USER=admin
 #   ADMIN_PASSWORD=<strong-password>
-#   ENCRYPTION_KEY=<random-32+-char-string>
+#   CORS_ORIGIN=https://your-domain.com
 nano .env
+docker compose up -d --build
 ```
 
-## 3. Start the stack
+### Option B: Manual (rsync to server)
 
 ```bash
-cd /apps/mongo-vault
-docker-compose up -d --build
-```
-
-## 4. Configure via UI
-
-Open `http://100.86.93.41:3011` in your browser (Tailscale required).
-
-1. Go to **Settings** → paste your SSH private key (from `~/.ssh/id_rsa` on localhost)
-2. Go to **Targets** → add a backup target (vps2 details)
-3. Go to **Dashboard** → click **Run Now** to test
-
-## 5. Update deployment
-
-```bash
-# From localhost:
 rsync -avz \
   --exclude='node_modules' \
   --exclude='data' \
   --exclude='.git' \
-  --exclude='ref-saasbackend' \
-  /home/jarancibia/ai/mongo-vault/ \
-  ubuntu@100.86.93.41:/apps/mongo-vault/
+  /home/user/mongo-vault/ \
+  user@server:/apps/mongo-vault/
 
-# On vps1:
-ssh ubuntu@100.86.93.41 "cd /apps/mongo-vault && docker-compose up -d --build"
+ssh user@server "cd /apps/mongo-vault && npm install --omit=dev && cp .env.example .env && nano .env && nohup node src/server.js &"
 ```
 
-## Local Development
+## Transition from SuperBackend (v0.x → v1.0)
+
+If your instance previously used `@intranefr/superbackend`:
+
+1. **No MongoDB migration needed** — same `globalsettings` collection stores targets and SSH key
+2. **Update code**: `git pull origin master`
+3. **Remove old dep**: `npm uninstall @intranefr/superbackend`
+4. **Install new deps**: `npm install`
+5. **Remove obsolete env vars** from `.env`:
+   - `ENCRYPTION_KEY` — no longer used
+   - `ADMIN_USER` → renamed to `ADMIN_USER` (still works, but file explicit)
+6. **Restart**: `npm start`
+
+### For Docker Compose users
+
+Update your `docker-compose.yml` — the app no longer needs MongoDB as a linked service (it connects directly via `MONGODB_URI`). The `mongo` service is optional only if you need a local MongoDB instance.
+
+## Health Check
 
 ```bash
-cd /home/jarancibia/ai/coolify-mongo-backup
-npm install
-# Start a local MongoDB (or use docker-compose for mongo only):
-docker compose up -d mongo
-npm run dev
-# Open http://localhost:3011
+curl -u admin:changeme http://localhost:3011/api/backups
+# → {"data": [...]}
+```
+
+## Reverse Proxy (Traefik / Nginx)
+
+```yaml
+# Traefik example
+labels:
+  - "traefik.enable=true"
+  - "traefik.http.routers.mongo-vault.rule=Host(`mv.example.com`)"
+  - "traefik.http.services.mongo-vault.loadbalancer.server.port=3011"
 ```

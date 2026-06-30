@@ -1,26 +1,13 @@
+const GlobalSetting = require('../models/GlobalSetting');
+
 const CACHE_TTL = 60000;
 const cache = new Map();
-
-function getModel() {
-  const isDev = process.env.NODE_ENV !== 'production';
-  let GlobalSetting;
-  if (isDev) {
-    try {
-      GlobalSetting = require('../../ref-saasbackend/src/models/GlobalSetting');
-    } catch {
-      GlobalSetting = require('@intranefr/superbackend/src/models/GlobalSetting');
-    }
-  } else {
-    GlobalSetting = require('@intranefr/superbackend/src/models/GlobalSetting');
-  }
-  return GlobalSetting;
-}
 
 async function getRaw(key) {
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.value;
   try {
-    const doc = await getModel().findOne({ key }).lean();
+    const doc = await GlobalSetting.findOne({ key }).lean();
     const value = doc ? doc.value : null;
     cache.set(key, { value, ts: Date.now() });
     return value;
@@ -32,7 +19,7 @@ async function getRaw(key) {
 
 async function setRaw(key, value, type = 'string') {
   cache.delete(key);
-  await getModel().findOneAndUpdate(
+  await GlobalSetting.findOneAndUpdate(
     { key },
     { $set: { value: String(value), type }, $setOnInsert: { description: key } },
     { upsert: true, new: true, setDefaultsOnInsert: true }
@@ -41,12 +28,12 @@ async function setRaw(key, value, type = 'string') {
 
 async function deleteKey(key) {
   cache.delete(key);
-  await getModel().deleteOne({ key });
+  await GlobalSetting.deleteOne({ key });
 }
 
 async function getAllTargets() {
   try {
-    const docs = await getModel().find({ key: /^target\./ }).lean();
+    const docs = await GlobalSetting.find({ key: /^target\./ }).lean();
     return docs.map((d) => {
       try { return JSON.parse(d.value); } catch { return null; }
     }).filter(Boolean);
